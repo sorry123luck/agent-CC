@@ -1,6 +1,6 @@
-# OpenClaw
+# DeskCanvas
 
-OpenClaw is an experimental Windows desktop perception layer for AI agents.
+DeskCanvas is an experimental Windows desktop perception layer that turns real app windows into structured interaction canvases for AI agents.
 
 The goal is to turn a real desktop application window into a structured page model that an external agent can inspect before deciding what to do. The project is still under active development and is not a finished automation product.
 
