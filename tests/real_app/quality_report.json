@@ -1,0 +1,188 @@
+{
+  "timestamp": "2026-05-10T08:55:52.499100+00:00",
+  "apps": {
+    "notepad": {
+      "observe": {
+        "status": "success",
+        "surface_type": "native_uia",
+        "page_class": "unknown/document/main/wide",
+        "element_count": 35,
+        "region_count": 6,
+        "providers_used": [
+          "uia",
+          "ocr",
+          "vision"
+        ],
+        "error": "attached to existing window (not launched by test)"
+      },
+      "queries": {
+        "文件": {
+          "found": true,
+          "count": 1,
+          "top_text": "文件",
+          "top_role": "button",
+          "error": null
+        },
+        "编辑": {
+          "found": true,
+          "count": 4,
+          "top_text": "编辑",
+          "top_role": "menu_item",
+          "error": null
+        },
+        "格式": {
+          "found": false,
+          "count": 0,
+          "top_text": "",
+          "top_role": "",
+          "error": null
+        }
+      },
+      "key_elements": {
+        "text": "found",
+        "menu_item": "found",
+        "button": "found"
+      },
+      "quality": "strong",
+      "issues": []
+    },
+    "chrome": {
+      "observe": {
+        "status": "success",
+        "surface_type": "canvas_self_drawn",
+        "page_class": "unknown/canvas/main/wide",
+        "element_count": 21,
+        "region_count": 5,
+        "providers_used": [
+          "uia",
+          "ocr"
+        ],
+        "error": "attached to existing window (not launched by test)"
+      },
+      "queries": {
+        "地址": {
+          "found": true,
+          "count": 1,
+          "top_text": "地址和搜索栏",
+          "top_role": "search_input",
+          "error": null
+        },
+        "搜索": {
+          "found": true,
+          "count": 1,
+          "top_text": "地址和搜索栏",
+          "top_role": "search_input",
+          "error": null
+        },
+        "标签": {
+          "found": true,
+          "count": 1,
+          "top_text": "Balls.Up.2026.2160p.AMZN.WEB-DL.DDP5.1.Atmos.H.265-FLUX – 11.3 GB - 闲置标签页 - 已释放 61.4 MB",
+          "top_role": "tab",
+          "error": null
+        }
+      },
+      "key_elements": {
+        "search_input": "found",
+        "toolbar": "found",
+        "tab": "found",
+        "button": "found"
+      },
+      "quality": "strong",
+      "issues": []
+    },
+    "wechat": {
+      "observe": {
+        "status": "success",
+        "surface_type": "canvas_self_drawn",
+        "page_class": "unknown/viewer/sparse/wide",
+        "element_count": 2,
+        "region_count": 2,
+        "providers_used": [
+          "uia",
+          "ocr",
+          "vision"
+        ],
+        "error": "attached to existing window (WeChat never auto-launched)"
+      },
+      "queries": {
+        "联系人": {
+          "found": false,
+          "count": 0,
+          "top_text": "",
+          "top_role": "",
+          "error": null
+        },
+        "聊天": {
+          "found": false,
+          "count": 0,
+          "top_text": "",
+          "top_role": "",
+          "error": null
+        },
+        "搜索": {
+          "found": false,
+          "count": 0,
+          "top_text": "",
+          "top_role": "",
+          "error": null
+        }
+      },
+      "key_elements": {
+        "sidebar": "found",
+        "title_bar": "found"
+      },
+      "quality": "weak",
+      "issues": [
+        "No queries returned candidates"
+      ]
+    },
+    "vscode": {
+      "observe": {
+        "status": "success",
+        "surface_type": "native_uia",
+        "page_class": "unknown/gui/main/wide",
+        "element_count": 702,
+        "region_count": 3,
+        "providers_used": [
+          "uia",
+          "ocr",
+          "vision"
+        ],
+        "error": "attached to existing window (not launched by test)"
+      },
+      "queries": {
+        "文件": {
+          "found": true,
+          "count": 3,
+          "top_text": "文件资源管理器",
+          "top_role": "tree_item",
+          "error": null
+        },
+        "侧边栏": {
+          "found": true,
+          "count": 1,
+          "top_text": "\"\"\"Real-app observe + query validation tests.\n\nFlow per app:\n1. resolve_window — find existing windows (never launches)\n2. If no window: launch_app (explicit decision) → resolve again\n3. observe(hwnd) — generate InteractionCanvas\n4. query — find candidates\n5. Record quality report\n\nWeChat: only attach to existing window, never launch.\n\nRun with: pytest tests/real_app/test_observe_real_apps.py -v --tb=short\n\"\"\"\n\nfrom __future__ import annotations\n\nimport json\nfrom pathlib import Path\n\nimport pytest\n\nfrom tests.real_app.app_helpers import (\n    close_app_safely,\n    is_chrome_available,\n    launch_app,\n    resolve_window,\n)\nfrom tests.real_app.quality_report import ObserveResult, QueryResult\n\n\n# ===== Key elements checklist =====\n\n_PROJECT_ROOT = Path(__file__).parents[2]\n_CHECKLIST_PATH = _PROJECT_ROOT / \"data\" / \"baselines\" / \"golden\" / \"key_elements_checklist.json\"\n\n\ndef _load_checklist() -> dict:\n    try:\n        with open(_CHECKLIST_PATH, encoding=\"utf-8\") as f:\n            return json.load(f)\n    except FileNotFoundError:\n        return {}\n\n\n# ===== Validation helpers =====\n\ndef _validate_observe_summary(data: dict, expected_surface_types: list[str]) -> list[str]:\n    \"\"\"Validate observe response summary fields. Returns list of issues.\"\"\"\n    issues = []\n    if not data.get(\"canvas_id\"):\n        issues.append(\"canvas_id is empty\")\n    if data.get(\"surface_type\") not in expected_surface_types:\n        issues.append(f\"surface_type '{data.get('surface_type')}' not in expected {expected_surface_types}\")\n    page_class = data.get(\"page_class\", \"\")\n    if not page_class or \"/\" not in page_class:\n        issues.append(f\"page_class '{page_class}' is not in app/workflow/state/variant format\")\n    if data.get(\"element_count\", 0) <= 0:\n        issues.append(\"element_count is 0\")\n    if data.get(\"region_count\", 0) <= 0:\n        issues.append(\"region_count is 0\")\n    if not data.get(\"providers_used\"):\n        issues.append(\"providers_used is empty\")\n    if data.get(\"canvas_schema_version\") != \"1.0\":\n        issues.append(f\"canvas_schema_version is '{data.get('canvas_schema_version')}'\")\n    return issues\n\n\ndef _check_key_elements(client, canvas_id: str, app_name: str, quality_report) -> set[str]:\n    \"\"\"Query for each required semantic_role and record which are found.\"\"\"\n    checklist = _load_checklist()\n    app_checklist = checklist.get(app_name, {})\n    required_roles = app_checklist.get(\"required_roles\", [])\n    found_roles = set()\n\n    for role in required_roles:\n        try:\n            resp = client.post(\n                \"/api/v1/query\",\n                json={\n                    \"canvas_id\": canvas_id,\n                    \"target\": {\"semantic_role\": role},\n                    \"max_results\": 1,\n                    \"min_confidence\": 0.0,\n                },\n            )\n            if resp.status_code == 200:\n                data = resp.json()\n                if data.get(\"total_matched\", 0) > 0:\n                    found_roles.add(role)\n        except Exception as e:\n            quality_report.record_query(\n                app_name, f\"role:{role}\", QueryResult(error=str(e))\n            )\n\n    quality_report.record_key_elements(app_name, found_roles, required_roles)\n    return found_roles\n\n\ndef _run_query(client, canvas_id: str, query_text: str) -> QueryResult:\n    \"\"\"Run a query and return structured result.\"\"\"\n    try:\n        resp = client.post(\n            \"/api/v1/query\",\n            json={\n                \"canvas_id\": canvas_id,\n                \"target\": {\"text\": query_text},\n                \"max_results\": 5,\n            },\n        )\n        if resp.status_code != 200:\n            return QueryResult(error=f\"HTTP {resp.status_code}\")\n        data = resp.json()\n        candidates = data.get(\"candidates\", [])\n        if candidates:\n            top = candidates[0]\n            return QueryResult(\n                found=True,\n                count=data.get(\"total_matched\", 0),\n                top_text=top.get(\"text\", \"\"),\n                top_role=top.get(\"semantic_role\", \"\"),\n            )\n        return QueryResult(found=False, count=0)\n    except Exception as e:\n        return QueryResult(error=str(e))\n\n\ndef _resolve_or_launch(app_name: str, *, allow_launch: bool = True) -> tuple[int | None, str]:\n    \"\"\"Resolve window, optionally launch if not found.\n\n    Returns (hwnd, window_source) where window_source is:\n    - \"attached_existing\": found existing window\n    - \"launched_new\": launched and found window\n    - \"no_window\": no window found (skip test)\n    \"\"\"\n    result = resolve_window(app_name)\n    if result.candidates:\n        return result.candidates[0].hwnd, \"attached_existing\"\n\n    if not allow_launch:\n        return None, \"no_window\"\n\n    # Launch explicitly, then resolve again\n    proc = launch_app(app_name)\n    if proc is None:\n        return None, \"no_window\"\n\n    result = resolve_window(app_name, prefer_session=True)\n    if result.candidates:\n        return result.candidates[0].hwnd, \"launched_new\"\n\n    return None, \"no_window\"\n\n\n# ===== Test cases =====\n\ndef test_observe_notepad(client, quality_report):\n    \"\"\"Open Notepad, observe it, query for menu items.\"\"\"\n    hwnd, source = _resolve_or_launch(\"notepad\")\n    try:\n        if hwnd is None:\n            quality_report.record_observe(\"notepad\", ObserveResult(status=\"skipped\", error=\"Window not found\"))\n            pytest.skip(\"Notepad window not found\")\n\n        # Observe\n        resp = client.post(\"/api/v1/observe\", json={\"hwnd\": hwnd})\n        obs_result = ObserveResult()\n\n        if resp.status_code != 200:\n            obs_result.status = \"failed\"\n            obs_result.error = f\"HTTP {resp.status_code}: {resp.text[:200]}\"\n            quality_report.record_observe(\"notepad\", obs_result)\n            pytest.fail(f\"Observe failed: {obs_result.error}\")\n\n        data = resp.json()\n        obs_result.status = \"success\"\n        obs_result.canvas_id = data[\"canvas_id\"]\n        obs_result.surface_type = data.get(\"surface_type\", \"\")\n        obs_result.page_class = data.get(\"page_class\", \"\")\n        obs_result.element_count = data.get(\"element_count\", 0)\n        obs_result.region_count = data.get(\"region_count\", 0)\n        obs_result.providers_used = data.get(\"providers_used\", [])\n\n        issues = _validate_observe_summary(data, [\"native_uia\", \"canvas_self_drawn\"])\n        if source == \"attached_existing\":\n            issues.append(\"attached to existing window (not launched by test)\")\n        for issue in issues:\n            obs_result.error = (obs_result.error or \"\") + f\"; {issue}\" if obs_result.error else issue\n        quality_report.record_observe(\"notepad\", obs_result)\n\n        # Query for expected elements\n        canvas_id = data[\"canvas_id\"]\n        for query_text in [\"文件\", \"编辑\", \"格式\"]:\n            qr = _run_query(client, canvas_id, query_text)\n            quality_report.record_query(\"notepad\", query_text, qr)\n\n        # Check key elements from checklist\n        _check_key_elements(client, canvas_id, \"notepad\", quality_report)\n\n        # Assert core expectations\n        assert data[\"canvas_id\"] != \"\"\n        assert data[\"element_count\"] > 0\n        assert data[\"region_count\"] > 0\n        assert len(data[\"providers_used\"]) > 0\n\n    finally:\n        close_app_safely(\"notepad\")\n\n\ndef test_observe_chrome(client, quality_report):\n    \"\"\"Open Chrome with temp profile, observe it, query for navigation elements.\"\"\"\n    if not is_chrome_available():\n        quality_report.record_observe(\"chrome\", ObserveResult(status=\"skipped\", error=\"Chrome not installed\"))\n        pytest.skip(\"Chrome not found on this system\")\n\n    hwnd, source = _resolve_or_launch(\"chrome\")\n    try:\n        if hwnd is None:\n            quality_report.record_observe(\"chrome\", ObserveResult(status=\"skipped\", error=\"Window not found\"))\n            pytest.skip(\"Chrome window not found\")\n\n        resp = client.post(\"/api/v1/observe\", json={\"hwnd\": hwnd})\n        obs_result = ObserveResult()\n\n        if resp.status_code != 200:\n            obs_result.status = \"failed\"\n            obs_result.error = f\"HTTP {resp.status_code}: {resp.text[:200]}\"\n            quality_report.record_observe(\"chrome\", obs_result)\n            pytest.fail(f\"Observe failed: {obs_result.error}\")\n\n        data = resp.json()\n        obs_result.status = \"success\"\n        obs_result.canvas_id = data[\"canvas_id\"]\n        obs_result.surface_type = data.get(\"surface_type\", \"\")\n        obs_result.page_class = data.get(\"page_class\", \"\")\n        obs_result.element_count = data.get(\"element_count\", 0)\n        obs_result.region_count = data.get(\"region_count\", 0)\n        obs_result.providers_used = data.get(\"providers_used\", [])\n\n        issues = _validate_observe_summary(data, [\"browser\", \"native_uia\", \"canvas_self_drawn\"])\n        if source == \"attached_existing\":\n            issues.append(\"attached to existing window (not launched by test)\")\n        obs_result.error = \"; \".join(issues) if issues else None\n        quality_report.record_observe(\"chrome\", obs_result)\n\n        canvas_id = data[\"canvas_id\"]\n        for query_text in [\"地址\", \"搜索\", \"标签\"]:\n            qr = _run_query(client, canvas_id, query_text)\n            quality_report.record_query(\"chrome\", query_text, qr)\n\n        _check_key_elements(client, canvas_id, \"chrome\", quality_report)\n\n        assert data[\"canvas_id\"] != \"\"\n        assert data[\"element_count\"] > 0\n\n    finally:\n        close_app_safely(\"chrome\")\n\n\ndef test_observe_wechat(client, quality_report):\n    \"\"\"Observe WeChat — attach to existing window only, never launch.\"\"\"\n    hwnd, source = _resolve_or_launch(\"wechat\", allow_launch=False)\n    if hwnd is None:\n        quality_report.record_observe(\"wechat\", ObserveResult(\n            status=\"skipped\",\n            error=\"WeChat window not found — must be already running\",\n        ))\n        pytest.skip(\"WeChat window not found — must be already running\")\n\n    resp = client.post(\"/api/v1/observe\", json={\"hwnd\": hwnd})\n    obs_result = ObserveResult()\n\n    if resp.status_code != 200:\n        obs_result.status = \"failed\"\n        obs_result.error = f\"HTTP {resp.status_code}: {resp.text[:200]}\"\n        quality_report.record_observe(\"wechat\", obs_result)\n        pytest.fail(f\"Observe failed: {obs_result.error}\")\n\n    data = resp.json()\n    obs_result.status = \"success\"\n    obs_result.canvas_id = data[\"canvas_id\"]\n    obs_result.surface_type = data.get(\"surface_type\", \"\")\n    obs_result.page_class = data.get(\"page_class\", \"\")\n    obs_result.element_count = data.get(\"element_count\", 0)\n    obs_result.region_count = data.get(\"region_count\", 0)\n    obs_result.providers_used = data.get(\"providers_used\", [])\n\n    issues = _validate_observe_summary(data, [\"electron_webview\", \"native_uia\", \"browser\", \"canvas_self_drawn\"])\n    issues.append(\"attached to existing window (WeChat never auto-launched)\")\n    obs_result.error = \"; \".join(issues) if issues else None\n    quality_report.record_observe(\"wechat\", obs_result)\n\n    canvas_id = data[\"canvas_id\"]\n    for query_text in [\"联系人\", \"聊天\", \"搜索\"]:\n        qr = _run_query(client, canvas_id, query_text)\n        quality_report.record_query(\"wechat\", query_text, qr)\n\n    _check_key_elements(client, canvas_id, \"wechat\", quality_report)\n\n    assert data[\"canvas_id\"] != \"\"\n\n\ndef test_observe_vscode(client, quality_report):\n    \"\"\"Open VS Code with temp dir, observe it, query for editor elements.\"\"\"\n    hwnd, source = _resolve_or_launch(\"vscode\")\n    try:\n        if hwnd is None:\n            quality_report.record_observe(\"vscode\", ObserveResult(status=\"skipped\", error=\"Window not found\"))\n            pytest.skip(\"VS Code window not found\")\n\n        resp = client.post(\"/api/v1/observe\", json={\"hwnd\": hwnd})\n        obs_result = ObserveResult()\n\n        if resp.status_code != 200:\n            obs_result.status = \"failed\"\n            obs_result.error = f\"HTTP {resp.status_code}: {resp.text[:200]}\"\n            quality_report.record_observe(\"vscode\", obs_result)\n            pytest.fail(f\"Observe failed: {obs_result.error}\")\n\n        data = resp.json()\n        obs_result.status = \"success\"\n        obs_result.canvas_id = data[\"canvas_id\"]\n        obs_result.surface_type = data.get(\"surface_type\", \"\")\n        obs_result.page_class = data.get(\"page_class\", \"\")\n        obs_result.element_count = data.get(\"element_count\", 0)\n        obs_result.region_count = data.get(\"region_count\", 0)\n        obs_result.providers_used = data.get(\"providers_used\", [])\n\n        issues = _validate_observe_summary(data, [\"electron\", \"native_uia\", \"canvas_self_drawn\"])\n        if source == \"attached_existing\":\n            issues.append(\"attached to existing window (not launched by test)\")\n        obs_result.error = \"; \".join(issues) if issues else None\n        quality_report.record_observe(\"vscode\", obs_result)\n\n        canvas_id = data[\"canvas_id\"]\n        for query_text in [\"文件\", \"侧边栏\", \"终端\"]:\n            qr = _run_query(client, canvas_id, query_text)\n            quality_report.record_query(\"vscode\", query_text, qr)\n\n        assert data[\"canvas_id\"] != \"\"\n        assert data[\"element_count\"] > 0\n\n    finally:\n        close_app_safely(\"vscode\")\n",
+          "top_role": "search_input",
+          "error": null
+        },
+        "终端": {
+          "found": true,
+          "count": 1,
+          "top_text": "\"\"\"Real-app observe + query validation tests.\n\nFlow per app:\n1. resolve_window — find existing windows (never launches)\n2. If no window: launch_app (explicit decision) → resolve again\n3. observe(hwnd) — generate InteractionCanvas\n4. query — find candidates\n5. Record quality report\n\nWeChat: only attach to existing window, never launch.\n\nRun with: pytest tests/real_app/test_observe_real_apps.py -v --tb=short\n\"\"\"\n\nfrom __future__ import annotations\n\nimport json\nfrom pathlib import Path\n\nimport pytest\n\nfrom tests.real_app.app_helpers import (\n    close_app_safely,\n    is_chrome_available,\n    launch_app,\n    resolve_window,\n)\nfrom tests.real_app.quality_report import ObserveResult, QueryResult\n\n\n# ===== Key elements checklist =====\n\n_PROJECT_ROOT = Path(__file__).parents[2]\n_CHECKLIST_PATH = _PROJECT_ROOT / \"data\" / \"baselines\" / \"golden\" / \"key_elements_checklist.json\"\n\n\ndef _load_checklist() -> dict:\n    try:\n        with open(_CHECKLIST_PATH, encoding=\"utf-8\") as f:\n            return json.load(f)\n    except FileNotFoundError:\n        return {}\n\n\n# ===== Validation helpers =====\n\ndef _validate_observe_summary(data: dict, expected_surface_types: list[str]) -> list[str]:\n    \"\"\"Validate observe response summary fields. Returns list of issues.\"\"\"\n    issues = []\n    if not data.get(\"canvas_id\"):\n        issues.append(\"canvas_id is empty\")\n    if data.get(\"surface_type\") not in expected_surface_types:\n        issues.append(f\"surface_type '{data.get('surface_type')}' not in expected {expected_surface_types}\")\n    page_class = data.get(\"page_class\", \"\")\n    if not page_class or \"/\" not in page_class:\n        issues.append(f\"page_class '{page_class}' is not in app/workflow/state/variant format\")\n    if data.get(\"element_count\", 0) <= 0:\n        issues.append(\"element_count is 0\")\n    if data.get(\"region_count\", 0) <= 0:\n        issues.append(\"region_count is 0\")\n    if not data.get(\"providers_used\"):\n        issues.append(\"providers_used is empty\")\n    if data.get(\"canvas_schema_version\") != \"1.0\":\n        issues.append(f\"canvas_schema_version is '{data.get('canvas_schema_version')}'\")\n    return issues\n\n\ndef _check_key_elements(client, canvas_id: str, app_name: str, quality_report) -> set[str]:\n    \"\"\"Query for each required semantic_role and record which are found.\"\"\"\n    checklist = _load_checklist()\n    app_checklist = checklist.get(app_name, {})\n    required_roles = app_checklist.get(\"required_roles\", [])\n    found_roles = set()\n\n    for role in required_roles:\n        try:\n            resp = client.post(\n                \"/api/v1/query\",\n                json={\n                    \"canvas_id\": canvas_id,\n                    \"target\": {\"semantic_role\": role},\n                    \"max_results\": 1,\n                    \"min_confidence\": 0.0,\n                },\n            )\n            if resp.status_code == 200:\n                data = resp.json()\n                if data.get(\"total_matched\", 0) > 0:\n                    found_roles.add(role)\n        except Exception as e:\n            quality_report.record_query(\n                app_name, f\"role:{role}\", QueryResult(error=str(e))\n            )\n\n    quality_report.record_key_elements(app_name, found_roles, required_roles)\n    return found_roles\n\n\ndef _run_query(client, canvas_id: str, query_text: str) -> QueryResult:\n    \"\"\"Run a query and return structured result.\"\"\"\n    try:\n        resp = client.post(\n            \"/api/v1/query\",\n            json={\n                \"canvas_id\": canvas_id,\n                \"target\": {\"text\": query_text},\n                \"max_results\": 5,\n            },\n        )\n        if resp.status_code != 200:\n            return QueryResult(error=f\"HTTP {resp.status_code}\")\n        data = resp.json()\n        candidates = data.get(\"candidates\", [])\n        if candidates:\n            top = candidates[0]\n            return QueryResult(\n                found=True,\n                count=data.get(\"total_matched\", 0),\n                top_text=top.get(\"text\", \"\"),\n                top_role=top.get(\"semantic_role\", \"\"),\n            )\n        return QueryResult(found=False, count=0)\n    except Exception as e:\n        return QueryResult(error=str(e))\n\n\ndef _resolve_or_launch(app_name: str, *, allow_launch: bool = True) -> tuple[int | None, str]:\n    \"\"\"Resolve window, optionally launch if not found.\n\n    Returns (hwnd, window_source) where window_source is:\n    - \"attached_existing\": found existing window\n    - \"launched_new\": launched and found window\n    - \"no_window\": no window found (skip test)\n    \"\"\"\n    result = resolve_window(app_name)\n    if result.candidates:\n        return result.candidates[0].hwnd, \"attached_existing\"\n\n    if not allow_launch:\n        return None, \"no_window\"\n\n    # Launch explicitly, then resolve again\n    proc = launch_app(app_name)\n    if proc is None:\n        return None, \"no_window\"\n\n    result = resolve_window(app_name, prefer_session=True)\n    if result.candidates:\n        return result.candidates[0].hwnd, \"launched_new\"\n\n    return None, \"no_window\"\n\n\n# ===== Test cases =====\n\ndef test_observe_notepad(client, quality_report):\n    \"\"\"Open Notepad, observe it, query for menu items.\"\"\"\n    hwnd, source = _resolve_or_launch(\"notepad\")\n    try:\n        if hwnd is None:\n            quality_report.record_observe(\"notepad\", ObserveResult(status=\"skipped\", error=\"Window not found\"))\n            pytest.skip(\"Notepad window not found\")\n\n        # Observe\n        resp = client.post(\"/api/v1/observe\", json={\"hwnd\": hwnd})\n        obs_result = ObserveResult()\n\n        if resp.status_code != 200:\n            obs_result.status = \"failed\"\n            obs_result.error = f\"HTTP {resp.status_code}: {resp.text[:200]}\"\n            quality_report.record_observe(\"notepad\", obs_result)\n            pytest.fail(f\"Observe failed: {obs_result.error}\")\n\n        data = resp.json()\n        obs_result.status = \"success\"\n        obs_result.canvas_id = data[\"canvas_id\"]\n        obs_result.surface_type = data.get(\"surface_type\", \"\")\n        obs_result.page_class = data.get(\"page_class\", \"\")\n        obs_result.element_count = data.get(\"element_count\", 0)\n        obs_result.region_count = data.get(\"region_count\", 0)\n        obs_result.providers_used = data.get(\"providers_used\", [])\n\n        issues = _validate_observe_summary(data, [\"native_uia\", \"canvas_self_drawn\"])\n        if source == \"attached_existing\":\n            issues.append(\"attached to existing window (not launched by test)\")\n        for issue in issues:\n            obs_result.error = (obs_result.error or \"\") + f\"; {issue}\" if obs_result.error else issue\n        quality_report.record_observe(\"notepad\", obs_result)\n\n        # Query for expected elements\n        canvas_id = data[\"canvas_id\"]\n        for query_text in [\"文件\", \"编辑\", \"格式\"]:\n            qr = _run_query(client, canvas_id, query_text)\n            quality_report.record_query(\"notepad\", query_text, qr)\n\n        # Check key elements from checklist\n        _check_key_elements(client, canvas_id, \"notepad\", quality_report)\n\n        # Assert core expectations\n        assert data[\"canvas_id\"] != \"\"\n        assert data[\"element_count\"] > 0\n        assert data[\"region_count\"] > 0\n        assert len(data[\"providers_used\"]) > 0\n\n    finally:\n        close_app_safely(\"notepad\")\n\n\ndef test_observe_chrome(client, quality_report):\n    \"\"\"Open Chrome with temp profile, observe it, query for navigation elements.\"\"\"\n    if not is_chrome_available():\n        quality_report.record_observe(\"chrome\", ObserveResult(status=\"skipped\", error=\"Chrome not installed\"))\n        pytest.skip(\"Chrome not found on this system\")\n\n    hwnd, source = _resolve_or_launch(\"chrome\")\n    try:\n        if hwnd is None:\n            quality_report.record_observe(\"chrome\", ObserveResult(status=\"skipped\", error=\"Window not found\"))\n            pytest.skip(\"Chrome window not found\")\n\n        resp = client.post(\"/api/v1/observe\", json={\"hwnd\": hwnd})\n        obs_result = ObserveResult()\n\n        if resp.status_code != 200:\n            obs_result.status = \"failed\"\n            obs_result.error = f\"HTTP {resp.status_code}: {resp.text[:200]}\"\n            quality_report.record_observe(\"chrome\", obs_result)\n            pytest.fail(f\"Observe failed: {obs_result.error}\")\n\n        data = resp.json()\n        obs_result.status = \"success\"\n        obs_result.canvas_id = data[\"canvas_id\"]\n        obs_result.surface_type = data.get(\"surface_type\", \"\")\n        obs_result.page_class = data.get(\"page_class\", \"\")\n        obs_result.element_count = data.get(\"element_count\", 0)\n        obs_result.region_count = data.get(\"region_count\", 0)\n        obs_result.providers_used = data.get(\"providers_used\", [])\n\n        issues = _validate_observe_summary(data, [\"browser\", \"native_uia\", \"canvas_self_drawn\"])\n        if source == \"attached_existing\":\n            issues.append(\"attached to existing window (not launched by test)\")\n        obs_result.error = \"; \".join(issues) if issues else None\n        quality_report.record_observe(\"chrome\", obs_result)\n\n        canvas_id = data[\"canvas_id\"]\n        for query_text in [\"地址\", \"搜索\", \"标签\"]:\n            qr = _run_query(client, canvas_id, query_text)\n            quality_report.record_query(\"chrome\", query_text, qr)\n\n        _check_key_elements(client, canvas_id, \"chrome\", quality_report)\n\n        assert data[\"canvas_id\"] != \"\"\n        assert data[\"element_count\"] > 0\n\n    finally:\n        close_app_safely(\"chrome\")\n\n\ndef test_observe_wechat(client, quality_report):\n    \"\"\"Observe WeChat — attach to existing window only, never launch.\"\"\"\n    hwnd, source = _resolve_or_launch(\"wechat\", allow_launch=False)\n    if hwnd is None:\n        quality_report.record_observe(\"wechat\", ObserveResult(\n            status=\"skipped\",\n            error=\"WeChat window not found — must be already running\",\n        ))\n        pytest.skip(\"WeChat window not found — must be already running\")\n\n    resp = client.post(\"/api/v1/observe\", json={\"hwnd\": hwnd})\n    obs_result = ObserveResult()\n\n    if resp.status_code != 200:\n        obs_result.status = \"failed\"\n        obs_result.error = f\"HTTP {resp.status_code}: {resp.text[:200]}\"\n        quality_report.record_observe(\"wechat\", obs_result)\n        pytest.fail(f\"Observe failed: {obs_result.error}\")\n\n    data = resp.json()\n    obs_result.status = \"success\"\n    obs_result.canvas_id = data[\"canvas_id\"]\n    obs_result.surface_type = data.get(\"surface_type\", \"\")\n    obs_result.page_class = data.get(\"page_class\", \"\")\n    obs_result.element_count = data.get(\"element_count\", 0)\n    obs_result.region_count = data.get(\"region_count\", 0)\n    obs_result.providers_used = data.get(\"providers_used\", [])\n\n    issues = _validate_observe_summary(data, [\"electron_webview\", \"native_uia\", \"browser\", \"canvas_self_drawn\"])\n    issues.append(\"attached to existing window (WeChat never auto-launched)\")\n    obs_result.error = \"; \".join(issues) if issues else None\n    quality_report.record_observe(\"wechat\", obs_result)\n\n    canvas_id = data[\"canvas_id\"]\n    for query_text in [\"联系人\", \"聊天\", \"搜索\"]:\n        qr = _run_query(client, canvas_id, query_text)\n        quality_report.record_query(\"wechat\", query_text, qr)\n\n    _check_key_elements(client, canvas_id, \"wechat\", quality_report)\n\n    assert data[\"canvas_id\"] != \"\"\n\n\ndef test_observe_vscode(client, quality_report):\n    \"\"\"Open VS Code with temp dir, observe it, query for editor elements.\"\"\"\n    hwnd, source = _resolve_or_launch(\"vscode\")\n    try:\n        if hwnd is None:\n            quality_report.record_observe(\"vscode\", ObserveResult(status=\"skipped\", error=\"Window not found\"))\n            pytest.skip(\"VS Code window not found\")\n\n        resp = client.post(\"/api/v1/observe\", json={\"hwnd\": hwnd})\n        obs_result = ObserveResult()\n\n        if resp.status_code != 200:\n            obs_result.status = \"failed\"\n            obs_result.error = f\"HTTP {resp.status_code}: {resp.text[:200]}\"\n            quality_report.record_observe(\"vscode\", obs_result)\n            pytest.fail(f\"Observe failed: {obs_result.error}\")\n\n        data = resp.json()\n        obs_result.status = \"success\"\n        obs_result.canvas_id = data[\"canvas_id\"]\n        obs_result.surface_type = data.get(\"surface_type\", \"\")\n        obs_result.page_class = data.get(\"page_class\", \"\")\n        obs_result.element_count = data.get(\"element_count\", 0)\n        obs_result.region_count = data.get(\"region_count\", 0)\n        obs_result.providers_used = data.get(\"providers_used\", [])\n\n        issues = _validate_observe_summary(data, [\"electron\", \"native_uia\", \"canvas_self_drawn\"])\n        if source == \"attached_existing\":\n            issues.append(\"attached to existing window (not launched by test)\")\n        obs_result.error = \"; \".join(issues) if issues else None\n        quality_report.record_observe(\"vscode\", obs_result)\n\n        canvas_id = data[\"canvas_id\"]\n        for query_text in [\"文件\", \"侧边栏\", \"终端\"]:\n            qr = _run_query(client, canvas_id, query_text)\n            quality_report.record_query(\"vscode\", query_text, qr)\n\n        assert data[\"canvas_id\"] != \"\"\n        assert data[\"element_count\"] > 0\n\n    finally:\n        close_app_safely(\"vscode\")\n",
+          "top_role": "search_input",
+          "error": null
+        }
+      },
+      "key_elements": {},
+      "quality": "strong",
+      "issues": []
+    }
+  },
+  "summary": {
+    "total": 4,
+    "observe_success": 4,
+    "query_success": 3,
+    "weak": 1
+  }
+}

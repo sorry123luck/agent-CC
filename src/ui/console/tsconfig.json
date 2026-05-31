@@ -1,0 +1,4 @@
+{
+  "files": ["auto-imports.d.ts"],
+  "extends": "./tsconfig.app.json"
+}

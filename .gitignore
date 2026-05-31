@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment and local secrets
+.env
+.env.*
+*.local
+config/local/
+
+# Runtime data and generated artifacts
+data/
+logs/
+.runtime_logs/
+artifacts/*
+*.db
+*.sqlite
+*.sqlite3
+@AutomationLog.txt
+output_*.png
+wechat_full.png
+vlm_response*.json
+.claude/
+models/omniparser/weights/
+
+# Frontend
+node_modules/
+src/ui/console/node_modules/
+src/ui/console/dist/
+dist/
+build/
+
+# Temporary inspection output
+_tmp*/
+tmp/
+temp/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

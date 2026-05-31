@@ -1,0 +1,15 @@
+{
+  "routes": [
+    {
+      "path": "/",
+      "src": "src/pages/Index.tsx"
+    }
+  ],
+  "components": [
+    { "name": "TopBar", "src": "src/components/TopBar.tsx" },
+    { "name": "ElementList", "src": "src/components/ElementList.tsx" },
+    { "name": "ReviewCanvas", "src": "src/components/ReviewCanvas.tsx" },
+    { "name": "ReviewPanel", "src": "src/components/ReviewPanel.tsx" },
+    { "name": "BottomBar", "src": "src/components/BottomBar.tsx" }
+  ]
+}
