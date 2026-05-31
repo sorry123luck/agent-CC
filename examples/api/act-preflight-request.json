@@ -1,0 +1,6 @@
+{
+  "canvas_id": "snap_example",
+  "candidate_id": "candidate_primary_action",
+  "action": "click",
+  "mode": "preflight"
+}

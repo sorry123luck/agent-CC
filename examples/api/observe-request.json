@@ -1,0 +1,6 @@
+{
+  "hwnd": 123456,
+  "include_screenshot": false,
+  "allow_vlm": false,
+  "force_refresh": true
+}

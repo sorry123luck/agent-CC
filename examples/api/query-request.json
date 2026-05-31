@@ -1,0 +1,6 @@
+{
+  "canvas_id": "snap_example",
+  "query": "primary action button",
+  "limit": 5,
+  "include_evidence": true
+}

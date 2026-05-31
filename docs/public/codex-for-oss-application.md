@@ -2,25 +2,54 @@
 
 Repository: `https://github.com/sorry123luck/agent-CC`
 
-## Short Description
+## One-Line Project Description
 
-OpenClaw is an open-source Windows desktop perception and guarded action layer for AI agents. It converts real application windows into structured page models with candidates, evidence, coordinates, risk labels, memory, and verification hooks.
+OpenClaw is an agent-facing Windows desktop perception and guarded-action API that turns real app windows into structured page models an AI agent can query and act on safely.
 
-## Why It Is Useful
+## What It Is
 
-Most desktop agents either rely on raw screenshots or app-specific automations. OpenClaw aims to provide a reusable middle layer: fast local perception, optional VLM semantic completion, persistent page memory, and conservative execution gates that an external agent can consume.
+OpenClaw is a local service and inspection console for desktop agents. It is not an app-specific automation script and not a chatbot. It provides the agent with:
 
-## Current Progress
+- window observation;
+- structured candidates with coordinates and evidence;
+- page regions and dynamic-content boundaries;
+- query/diff/memory APIs;
+- guarded action preflight and verification;
+- privacy-aware testing and artifact policy.
 
-- Fast observe and page model generation.
-- Multi-source perception fusion.
-- ROI VLM semantic supplement.
-- Visual console for inspecting candidates and evidence.
-- Page operability and regression reporting.
-- Controlled action preflight and verification.
-- Privacy-aware artifact policy for live desktop samples.
+## Why It Matters
+
+Most desktop agents choose between two weak options:
+
+1. operate directly on screenshots and hope the model understands every coordinate;
+2. build app-specific scripts that break on unknown software.
+
+OpenClaw aims for a reusable middle layer. It gives the agent a stable UI map while keeping final task reasoning outside the service.
+
+## Current Public Capabilities
+
+- Windows window enumeration and screenshot capture.
+- UIA/OCR/geometric fusion into `InteractionCanvas`.
+- Optional ROI VLM semantic supplement for ambiguous controls.
+- React console for reviewing candidates, evidence, regions, VLM output, and memory.
+- Page operability reports for agent readiness.
+- `/api/v1/act` policy classes: `read-only`, `review`, `controlled`, `blocked`.
+- Controlled click/scroll with observe/diff/readback verification.
+- Conservative input/send safety gates.
+- Unit, e2e, and real-app test harnesses.
+
+## Showcase Summary
+
+OpenClaw converts desktop UI from raw pixels into agent-readable state:
+
+- raw screenshot -> canvas with regions;
+- unknown icon -> candidate with local evidence plus optional VLM semantic label;
+- click request -> preflight policy decision;
+- action result -> verified transition/readback record.
+
+Private live screenshots and chat samples are intentionally excluded from the public branch. The public repository includes the code, test harnesses, sanitized progress summaries, and example API payloads.
 
 ## Why Codex Helps
 
-The project needs sustained engineering across perception, safety policy, Windows automation, frontend inspection tools, regression tooling, and documentation. Codex can help keep the architecture coherent while expanding coverage across real desktop applications.
+This project needs sustained engineering across Windows automation, perception fusion, VLM prompt/evidence design, safety policy, regression tooling, and frontend inspection. Codex is a strong fit because the project has a real codebase, a clear agent-facing API, and many incremental engineering tasks that benefit from long-running code assistance.
 
