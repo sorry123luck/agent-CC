@@ -6,7 +6,7 @@
 
 ## 当前实施口径
 
-OpenClaw Desktop Agent 是一个**桌面感知服务**，核心是把真实窗口转换成 InteractionCanvas。
+DeskCanvas 是一个**桌面感知服务**，核心是把真实窗口转换成 InteractionCanvas。
 
 - 软件负责：感知、画布生成、候选查询、差异比较、记忆、反馈
 - Agent 负责：决策、业务流程
