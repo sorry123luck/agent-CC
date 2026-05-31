@@ -28,7 +28,7 @@ export default function TopBar({ view, canvasDetail, onBack, isVirtualModelView,
             <Eye size={11} color="white" strokeWidth={2.5} />
           </div>
           <div>
-            <span className="prc-text font-semibold text-xs leading-tight">OpenClaw Console</span>
+            <span className="prc-text font-semibold text-xs leading-tight">DeskCanvas Console</span>
             <span className="prc-text-dim ml-2" style={{ fontSize: '0.6rem' }}>本地调试视图</span>
           </div>
         </div>

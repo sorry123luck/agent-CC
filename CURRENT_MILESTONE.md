@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make the OpenClaw page model usable by external agents without embedding task intent or private app workflows into the service.
+Make the DeskCanvas page model usable by external agents without embedding task intent or private app workflows into the service.
 
 ## Acceptance Criteria
 

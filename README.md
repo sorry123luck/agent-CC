@@ -6,7 +6,7 @@ The goal is to turn a real desktop application window into a structured page mod
 
 ## Project Goal
 
-Current desktop agents often rely on raw screenshots and approximate coordinates. OpenClaw explores a middle layer:
+Current desktop agents often rely on raw screenshots and approximate coordinates. DeskCanvas explores a middle layer:
 
 1. capture a Windows application window;
 2. combine UIA, OCR, geometry, memory, and optional VLM evidence;
@@ -59,8 +59,8 @@ Known unfinished areas:
 Backend:
 
 ```powershell
-git clone https://github.com/sorry123luck/agent-CC.git
-cd agent-CC
+git clone https://github.com/sorry123luck/desk-canvas.git
+cd desk-canvas
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt

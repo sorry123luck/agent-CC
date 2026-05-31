@@ -1,4 +1,4 @@
-/** API client for OpenClaw Console. */
+/** API client for DeskCanvas Console. */
 
 import type {
   CanvasSummary,

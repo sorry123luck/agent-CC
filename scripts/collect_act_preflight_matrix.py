@@ -26,7 +26,7 @@ def collect_act_preflight_matrix_from_details(
     details: list[dict[str, Any]],
     act_client: ActClient,
     sample_rows: list[dict[str, Any]] | None = None,
-    probe_text: str = "OpenClaw matrix probe",
+    probe_text: str = "DeskCanvas matrix probe",
 ) -> dict[str, Any]:
     """Build a matrix by calling /act dry-run for each detail's input/send candidates."""
     row_index = _sample_row_index(sample_rows or [])
@@ -64,7 +64,7 @@ def collect_act_preflight_matrix_dirs(
     act_client: ActClient | None = None,
     sample_matrix: Path | None = None,
     api_base: str = "http://127.0.0.1:8000",
-    probe_text: str = "OpenClaw matrix probe",
+    probe_text: str = "DeskCanvas matrix probe",
 ) -> dict[str, Any]:
     """Load canvas detail JSON files, collect preflight responses, and write outputs."""
     details = _load_detail_files(detail_dir)
@@ -383,7 +383,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--sample-matrix", type=Path)
     parser.add_argument("--api-base", default="http://127.0.0.1:8000")
-    parser.add_argument("--probe-text", default="OpenClaw matrix probe")
+    parser.add_argument("--probe-text", default="DeskCanvas matrix probe")
     args = parser.parse_args()
     matrix = collect_act_preflight_matrix_dirs(
         detail_dir=args.detail_dir,

@@ -261,7 +261,7 @@ def test_act_send_blocks_disabled_send_button(client, seed_canvas):
             "canvas_id": canvas_id,
             "candidate_id": "elem_0",
             "action": "send",
-            "params": {"expected_text": "OpenClaw probe"},
+            "params": {"expected_text": "DeskCanvas probe"},
             "dry_run": True,
         },
     )
@@ -290,7 +290,7 @@ def test_act_send_with_expected_text_returns_readback_plan(client, seed_canvas):
             "canvas_id": canvas_id,
             "candidate_id": "elem_0",
             "action": "send",
-            "params": {"expected_text": "OpenClaw probe"},
+            "params": {"expected_text": "DeskCanvas probe"},
             "dry_run": True,
         },
     )
@@ -302,10 +302,10 @@ def test_act_send_with_expected_text_returns_readback_plan(client, seed_canvas):
     assert data["action_plan"]["action_level"] == "controlled"
     verification = data["action_plan"]["verification_plan"]
     assert verification["readback_after"] is True
-    assert verification["readback_plan"]["expected_text"] == "OpenClaw probe"
+    assert verification["readback_plan"]["expected_text"] == "DeskCanvas probe"
     assert verification["readback_plan"]["source"] == "params.expected_text"
     assert {"field": "send_enabled", "expected": True} in verification["state_probe_plan"]["before_requirements"]
-    assert {"field": "message_stream_contains", "expected": "OpenClaw probe", "source": "params.expected_text"} in verification["state_probe_plan"]["after_expectations"]
+    assert {"field": "message_stream_contains", "expected": "DeskCanvas probe", "source": "params.expected_text"} in verification["state_probe_plan"]["after_expectations"]
 
 
 def test_act_send_accepts_chat_composer_geometric_send_target(client, seed_canvas):
@@ -350,7 +350,7 @@ def test_act_send_accepts_chat_composer_geometric_send_target(client, seed_canva
             "canvas_id": canvas_id,
             "candidate_id": "vision_send_like",
             "action": "send",
-            "params": {"expected_text": "OpenClaw probe"},
+            "params": {"expected_text": "DeskCanvas probe"},
             "dry_run": True,
         },
     )
@@ -360,7 +360,7 @@ def test_act_send_accepts_chat_composer_geometric_send_target(client, seed_canva
     assert "send_requires_send_candidate" not in data["warnings"]
     assert data["action_plan"]["candidate"]["semantic_role_hint"] == "send_button"
     verification = data["action_plan"]["verification_plan"]
-    assert verification["readback_plan"]["expected_text"] == "OpenClaw probe"
+    assert verification["readback_plan"]["expected_text"] == "DeskCanvas probe"
 
 
 def test_act_send_confirmed_execution_still_disabled(client, seed_canvas):
@@ -378,7 +378,7 @@ def test_act_send_confirmed_execution_still_disabled(client, seed_canvas):
             "canvas_id": canvas_id,
             "candidate_id": "elem_0",
             "action": "send",
-            "params": {"expected_text": "OpenClaw probe"},
+            "params": {"expected_text": "DeskCanvas probe"},
             "dry_run": False,
             "execute_confirmed": True,
         },

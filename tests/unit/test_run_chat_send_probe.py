@@ -310,14 +310,14 @@ def test_run_probe_plan_type_only_observes_before_and_after(monkeypatch, tmp_pat
         },
         output_dir=tmp_path,
         base_url="http://unused",
-        texts={"qq.exe": "OpenClaw probe"},
+        texts={"qq.exe": "DeskCanvas probe"},
         execute=True,
         send=False,
         wait_seconds=0,
     )
 
     assert report["overall_status"] == "review"
-    assert ("type", (31, [400, 480], "OpenClaw probe")) in calls
+    assert ("type", (31, [400, 480], "DeskCanvas probe")) in calls
     assert ("clear", (31, [400, 480])) in calls
     assert not any(call[0] == "click_send" for call in calls)
     assert report["rows"][0]["before_canvas_id"].startswith("canvas_")
@@ -357,7 +357,7 @@ def test_run_probe_plan_send_click_requires_explicit_send(monkeypatch, tmp_path)
         },
         output_dir=tmp_path,
         base_url="http://unused",
-        texts={"feishu.exe": "OpenClaw probe"},
+        texts={"feishu.exe": "DeskCanvas probe"},
         execute=True,
         send=True,
         wait_seconds=0,
@@ -409,13 +409,13 @@ def test_run_probe_plan_send_runs_readback_by_default(monkeypatch, tmp_path):
         },
         output_dir=tmp_path,
         base_url="http://unused",
-        texts={"feishu.exe": "OpenClaw probe"},
+        texts={"feishu.exe": "DeskCanvas probe"},
         execute=True,
         send=True,
         wait_seconds=0,
     )
 
-    assert readback_calls[0]["text"] == "OpenClaw probe"
+    assert readback_calls[0]["text"] == "DeskCanvas probe"
     assert readback_calls[0]["sent_message_crop"] == "sent_message_crop.png"
     assert report["rows"][0]["readback_observed_after"] is True
     assert report["rows"][0]["readback_event_count"] == 1

@@ -4,7 +4,7 @@ Please do not report private screenshots, chat logs, API keys, or local runtime 
 
 ## Sensitive Data
 
-OpenClaw may process desktop screenshots and OCR text during local development. Treat generated artifacts as sensitive by default.
+DeskCanvas may process desktop screenshots and OCR text during local development. Treat generated artifacts as sensitive by default.
 
 ## Reporting
 

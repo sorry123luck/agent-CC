@@ -58,7 +58,7 @@ def test_collects_type_and_send_preflight_requests_from_canvas_detail():
     matrix = module.collect_act_preflight_matrix_from_details(
         details=[_detail()],
         act_client=fake_act,
-        probe_text="OpenClaw matrix probe",
+        probe_text="DeskCanvas matrix probe",
     )
 
     row = matrix["rows"][0]
@@ -70,14 +70,14 @@ def test_collects_type_and_send_preflight_requests_from_canvas_detail():
             "canvas_id": "canvas_1",
             "candidate_id": "input_1",
             "action": "type_text",
-            "params": {"text": "OpenClaw matrix probe"},
+            "params": {"text": "DeskCanvas matrix probe"},
             "dry_run": True,
         },
         {
             "canvas_id": "canvas_1",
             "candidate_id": "send_1",
             "action": "send",
-            "params": {"expected_text": "OpenClaw matrix probe"},
+            "params": {"expected_text": "DeskCanvas matrix probe"},
             "dry_run": True,
         },
     ]

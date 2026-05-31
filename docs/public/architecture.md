@@ -1,6 +1,6 @@
 # Architecture
 
-OpenClaw is split into five layers.
+DeskCanvas is split into five layers.
 
 ## 1. Window and Capture
 

@@ -57,7 +57,7 @@ def test_readiness_marks_review_only_input_probe_ready_when_contracts_complete()
                         "has_state_probe_plan": True,
                         "has_readback_plan": True,
                         "send_enabled": False,
-                        "expected_text": "OpenClaw matrix probe",
+                        "expected_text": "DeskCanvas matrix probe",
                     },
                     "failures": [],
                 }

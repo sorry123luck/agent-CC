@@ -135,7 +135,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="OpenClaw Desktop Agent API",
+    title="DeskCanvas API",
     version="1.0.0",
     description="桌面智能代理平台的 HTTP API",
     lifespan=lifespan,
@@ -2286,7 +2286,7 @@ def _do_observe(
 @app.get("/")
 async def root():
     return {
-        "name": "OpenClaw Desktop Agent API",
+        "name": "DeskCanvas API",
         "version": "1.0.0",
         "status": "running",
     }
@@ -3924,7 +3924,7 @@ async def list_semantic_modeler_models(request: SemanticModelerModelListRequest)
         headers["anthropic-version"] = "2023-06-01"
     if provider == "openrouter":
         headers["HTTP-Referer"] = "http://127.0.0.1/openclaw"
-        headers["X-Title"] = "OpenClaw Desktop Agent"
+        headers["X-Title"] = "DeskCanvas"
 
     try:
         session = create_vlm_session(proxy_url=config.proxy_url, proxy_port=config.proxy_port)

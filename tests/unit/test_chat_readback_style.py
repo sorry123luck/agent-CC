@@ -8,7 +8,7 @@ def test_extract_style_samples_keeps_sender_bubble_rgb_events():
             {
                 "sender": "me",
                 "message_type": "text",
-                "text": "OpenClaw probe",
+                "text": "DeskCanvas probe",
                 "style": {"bubble_rgb": [146, 224, 148]},
             },
             {

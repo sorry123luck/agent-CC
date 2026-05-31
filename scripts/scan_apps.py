@@ -16,7 +16,7 @@ from src.common.logger import logger
 
 def main():
     print("=" * 60)
-    print("OpenClaw 软件扫描器")
+    print("DeskCanvas 软件扫描器")
     print("=" * 60)
 
     # 确保数据目录存在

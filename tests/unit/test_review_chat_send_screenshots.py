@@ -26,12 +26,12 @@ def test_build_review_rows_marks_requested_apps_observed(tmp_path):
     actions = [
         {
             "app": "wechat",
-            "text": "OpenClaw send probe",
+            "text": "DeskCanvas send probe",
             "typed_screenshot": str(screenshot),
         },
         {
             "app": "qq",
-            "text": "OpenClaw send probe",
+            "text": "DeskCanvas send probe",
             "typed_screenshot": str(tmp_path / "qq_typed.png"),
         },
     ]
@@ -50,7 +50,7 @@ def test_build_review_rows_uses_crop_ocr_text_when_present(tmp_path):
     actions = [
         {
             "app": "wechat",
-            "text": "OpenClaw send probe",
+            "text": "DeskCanvas send probe",
             "typed_screenshot": str(tmp_path / "weixin_typed.png"),
             "typed_input_crop": str(tmp_path / "weixin_crop.png"),
         }
@@ -60,7 +60,7 @@ def test_build_review_rows_uses_crop_ocr_text_when_present(tmp_path):
         actions,
         observed_apps=set(),
         stage="typed",
-        crop_ocr_text_by_app={"wechat": "noise OpenClaw send probe"},
+        crop_ocr_text_by_app={"wechat": "noise DeskCanvas send probe"},
     )
 
     assert rows[0]["observed_after"] is True
@@ -73,7 +73,7 @@ def test_build_review_rows_uses_sent_message_crop_for_sent_stage(tmp_path):
     actions = [
         {
             "app": "wechat",
-            "text": "OpenClaw send probe",
+            "text": "DeskCanvas send probe",
             "sent_screenshot": str(tmp_path / "weixin_sent.png"),
             "sent_message_crop": str(tmp_path / "weixin_message.png"),
         }
@@ -83,7 +83,7 @@ def test_build_review_rows_uses_sent_message_crop_for_sent_stage(tmp_path):
         actions,
         observed_apps=set(),
         stage="sent",
-        crop_ocr_text_by_app={"wechat": "OpenClaw send probe"},
+        crop_ocr_text_by_app={"wechat": "DeskCanvas send probe"},
     )
 
     assert rows[0]["observed_after"] is True
@@ -96,7 +96,7 @@ def test_write_review_outputs_json_and_markdown(tmp_path):
     rows = [
         {
             "app": "wechat",
-            "text": "OpenClaw send probe",
+            "text": "DeskCanvas send probe",
             "observed_after": True,
             "source": "screenshots/weixin.png",
             "review_method": "human_visual_review",
@@ -108,7 +108,7 @@ def test_write_review_outputs_json_and_markdown(tmp_path):
     saved = json.loads((tmp_path / "chat_send_visual_review.json").read_text(encoding="utf-8"))
     markdown = (tmp_path / "chat_send_visual_review.md").read_text(encoding="utf-8")
     assert saved["reviews"][0]["observed_after"] is True
-    assert "| wechat | yes | human_visual_review | OpenClaw send probe |" in markdown
+    assert "| wechat | yes | human_visual_review | DeskCanvas send probe |" in markdown
 
 
 def test_load_actions_accepts_probe_actions_json(tmp_path):

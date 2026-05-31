@@ -4,7 +4,7 @@ This public status file is a sanitized summary. Private screenshots, real chat s
 
 ## Current Phase
 
-OpenClaw is in the agent-operability phase:
+DeskCanvas is in the agent-operability phase:
 
 - page observation and candidate generation are usable for inspection;
 - VLM supplements are treated as semantic evidence, not as the source of coordinates;

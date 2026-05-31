@@ -1,6 +1,6 @@
 # Contributing
 
-OpenClaw is still a prototype. Keep changes small, tested, and privacy-aware.
+DeskCanvas is still a prototype. Keep changes small, tested, and privacy-aware.
 
 ## Before Opening a PR
 

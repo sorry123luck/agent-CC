@@ -92,7 +92,7 @@ def capture_baseline(app_name: str, hwnd: int, output_dir: Path) -> dict:
         candidates = _build_candidates_from_json(snapshot_data, output_dir, bundle_name)
 
         # [3/8] Build openclaw payload
-        print("[3/8] Building OpenClaw payload...")
+        print("[3/8] Building DeskCanvas payload...")
         _build_openclaw_payload_from_json(snapshot_data, candidates, output_dir, bundle_name)
 
         # [4/8] Generate source distribution
@@ -175,7 +175,7 @@ def _build_openclaw_payload_from_json(
     output_dir: Path,
     bundle_name: str,
 ):
-    """Build OpenClaw payload from snapshot JSON."""
+    """Build DeskCanvas payload from snapshot JSON."""
     try:
         from src.perception.page_compiler_models import InteractionCanvas
 
@@ -194,7 +194,7 @@ def _build_openclaw_payload_from_json(
         json.dumps(payload, indent=2, ensure_ascii=False, default=str),
         encoding="utf-8",
     )
-    print(f"  OpenClaw payload saved")
+    print(f"  DeskCanvas payload saved")
 
 
 def _compute_source_distribution(

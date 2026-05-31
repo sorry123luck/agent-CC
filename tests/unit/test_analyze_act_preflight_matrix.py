@@ -26,7 +26,7 @@ def _act_response(
     warnings: list[str] | None = None,
     input_state: str = "empty",
     send_enabled: bool | None = False,
-    expected_text: str = "OpenClaw probe",
+    expected_text: str = "DeskCanvas probe",
 ) -> dict:
     return {
         "execution_result": execution_result,

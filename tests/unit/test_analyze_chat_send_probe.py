@@ -25,14 +25,14 @@ def test_build_probe_report_marks_text_observed_after_action():
         {
             "app": "qq",
             "ok": True,
-            "text": "OpenClaw probe qq",
+            "text": "DeskCanvas probe qq",
             "send_bounds": [844, 598, 942, 627],
         }
     ]
     details = [
         {
             "window_title": "QQ",
-            "elements": [{"text": "OpenClaw probe qq"}],
+            "elements": [{"text": "DeskCanvas probe qq"}],
             "ocr_blocks": [],
         }
     ]
@@ -51,7 +51,7 @@ def test_build_probe_report_flags_missing_text_after_action():
         {
             "app": "feishu",
             "ok": True,
-            "text": "OpenClaw probe feishu",
+            "text": "DeskCanvas probe feishu",
             "send_bounds": [958, 704, 982, 732],
         }
     ]
@@ -88,10 +88,10 @@ def test_build_probe_report_uses_latest_action_for_same_app():
 
 def test_build_probe_report_prefers_matching_detail_that_contains_probe_text():
     module = _load_module()
-    actions = [{"app": "qq", "ok": True, "text": "OpenClaw probe qq", "send_bounds": [844, 598, 942, 627]}]
+    actions = [{"app": "qq", "ok": True, "text": "DeskCanvas probe qq", "send_bounds": [844, 598, 942, 627]}]
     details = [
         {"window_title": "QQ", "elements": [{"text": "small account window"}], "ocr_blocks": []},
-        {"window_title": "QQ", "elements": [{"text": "OpenClaw probe qq"}], "ocr_blocks": []},
+        {"window_title": "QQ", "elements": [{"text": "DeskCanvas probe qq"}], "ocr_blocks": []},
     ]
 
     report = module.build_probe_report(actions=actions, details=details)
@@ -107,11 +107,11 @@ def test_analyze_probe_dirs_writes_report(tmp_path):
     action_dir.mkdir()
     after_dir.mkdir()
     (action_dir / "send_probe_actions.json").write_text(
-        json.dumps([{"app": "wechat", "ok": True, "text": "OpenClaw probe wechat", "send_bounds": [900, 600, 960, 630]}]),
+        json.dumps([{"app": "wechat", "ok": True, "text": "DeskCanvas probe wechat", "send_bounds": [900, 600, 960, 630]}]),
         encoding="utf-8",
     )
     (after_dir / "weixin.detail.json").write_text(
-        json.dumps({"window_title": "微信", "elements": [], "ocr_blocks": [{"text": "OpenClaw probe wechat"}]}),
+        json.dumps({"window_title": "微信", "elements": [], "ocr_blocks": [{"text": "DeskCanvas probe wechat"}]}),
         encoding="utf-8",
     )
 
@@ -119,7 +119,7 @@ def test_analyze_probe_dirs_writes_report(tmp_path):
 
     assert report["overall_status"] == "pass"
     assert (tmp_path / "chat_send_probe_report.json").exists()
-    assert "OpenClaw probe wechat" in (tmp_path / "chat_send_probe_report.md").read_text(encoding="utf-8")
+    assert "DeskCanvas probe wechat" in (tmp_path / "chat_send_probe_report.md").read_text(encoding="utf-8")
 
 
 def test_analyze_probe_dirs_loads_visual_review_from_action_dir_by_default(tmp_path):
@@ -129,11 +129,11 @@ def test_analyze_probe_dirs_loads_visual_review_from_action_dir_by_default(tmp_p
     action_dir.mkdir()
     after_dir.mkdir()
     (action_dir / "send_probe_actions.json").write_text(
-        json.dumps([{"app": "wechat", "ok": True, "text": "OpenClaw probe wechat", "send_bounds": [900, 600, 960, 630]}]),
+        json.dumps([{"app": "wechat", "ok": True, "text": "DeskCanvas probe wechat", "send_bounds": [900, 600, 960, 630]}]),
         encoding="utf-8",
     )
     (action_dir / "chat_send_visual_review.json").write_text(
-        json.dumps({"reviews": [{"app": "wechat", "text": "OpenClaw probe wechat", "observed_after": True}]}),
+        json.dumps({"reviews": [{"app": "wechat", "text": "DeskCanvas probe wechat", "observed_after": True}]}),
         encoding="utf-8",
     )
     (after_dir / "weixin.detail.json").write_text(
@@ -155,11 +155,11 @@ def test_analyze_probe_dirs_loads_retry_action_files(tmp_path):
     action_dir.mkdir()
     after_dir.mkdir()
     (action_dir / "send_retry_action.json").write_text(
-        json.dumps({"app": "feishu", "ok": True, "text": "OpenClaw probe feishu", "send_bounds": [890, 702, 980, 728]}),
+        json.dumps({"app": "feishu", "ok": True, "text": "DeskCanvas probe feishu", "send_bounds": [890, 702, 980, 728]}),
         encoding="utf-8",
     )
     (after_dir / "feishu.detail.json").write_text(
-        json.dumps({"window_title": "飞书", "elements": [{"text": "OpenClaw probe feishu"}], "ocr_blocks": []}),
+        json.dumps({"window_title": "飞书", "elements": [{"text": "DeskCanvas probe feishu"}], "ocr_blocks": []}),
         encoding="utf-8",
     )
 
@@ -176,11 +176,11 @@ def test_analyze_probe_dirs_loads_probe_detail_json_without_detail_suffix(tmp_pa
     action_dir.mkdir()
     after_dir.mkdir()
     (action_dir / "send_probe_actions.json").write_text(
-        json.dumps([{"app": "qq", "ok": True, "text": "OpenClaw probe qq", "send_bounds": [844, 598, 942, 627]}]),
+        json.dumps([{"app": "qq", "ok": True, "text": "DeskCanvas probe qq", "send_bounds": [844, 598, 942, 627]}]),
         encoding="utf-8",
     )
     (after_dir / "qq_typed_snap_123.json").write_text(
-        json.dumps({"window_title": "QQ", "elements": [{"text": "OpenClaw probe qq"}], "ocr_blocks": []}),
+        json.dumps({"window_title": "QQ", "elements": [{"text": "DeskCanvas probe qq"}], "ocr_blocks": []}),
         encoding="utf-8",
     )
 
@@ -193,7 +193,7 @@ def test_analyze_probe_dirs_loads_probe_detail_json_without_detail_suffix(tmp_pa
 def test_build_probe_report_warns_when_action_log_has_no_expected_text():
     module = _load_module()
     actions = [{"app": "feishu_retry", "send_bounds": [890, 702, 980, 728]}]
-    details = [{"window_title": "飞书", "elements": [{"text": "OpenClaw probe feishu"}], "ocr_blocks": []}]
+    details = [{"window_title": "飞书", "elements": [{"text": "DeskCanvas probe feishu"}], "ocr_blocks": []}]
 
     report = module.build_probe_report(actions=actions, details=details)
 
@@ -209,7 +209,7 @@ def test_build_probe_report_warns_when_visual_review_observes_missing_machine_te
         {
             "app": "wechat",
             "ok": True,
-            "text": "OpenClaw probe wechat",
+            "text": "DeskCanvas probe wechat",
             "send_bounds": [918, 683, 978, 710],
         }
     ]
@@ -217,7 +217,7 @@ def test_build_probe_report_warns_when_visual_review_observes_missing_machine_te
     visual_reviews = [
         {
             "app": "wechat",
-            "text": "OpenClaw probe wechat",
+            "text": "DeskCanvas probe wechat",
             "observed_after": True,
             "source": "screenshots/weixin.png",
         }
@@ -239,7 +239,7 @@ def test_build_probe_report_accepts_readback_worker_evidence():
         {
             "app": "wechat",
             "ok": True,
-            "text": "OpenClaw probe wechat",
+            "text": "DeskCanvas probe wechat",
             "send_bounds": [918, 683, 978, 710],
         }
     ]
@@ -253,7 +253,7 @@ def test_build_probe_report_accepts_readback_worker_evidence():
                     "message_id": "ocr_0",
                     "sender": "me",
                     "message_type": "text",
-                    "text": "OpenClaw probe wechat",
+                    "text": "DeskCanvas probe wechat",
                     "bounds": [600, 400, 900, 440],
                     "confidence": 0.91,
                     "source": "ocr_crop",

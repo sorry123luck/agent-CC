@@ -595,7 +595,7 @@ class BoundaryCandidate:
     """
     弱语义候选框。
 
-    给 OpenClaw 的输入只保留坐标、文本、来源、弱 hint，
+    给 DeskCanvas 的输入只保留坐标、文本、来源、弱 hint，
     不要求本地先做最终语义解释。
     """
     candidate_id: str
@@ -612,7 +612,7 @@ class BoundaryCandidate:
 
 @dataclass
 class DecisionAlternative:
-    """OpenClaw 排除的候选。"""
+    """DeskCanvas 排除的候选。"""
     candidate_id: str
     selected_role: str = ""
     reject_reason: str = ""
@@ -620,7 +620,7 @@ class DecisionAlternative:
 
 @dataclass
 class DecisionAction:
-    """OpenClaw 返回的下一步动作建议。"""
+    """DeskCanvas 返回的下一步动作建议。"""
     type: str = ""
     text: str = ""
 
@@ -628,7 +628,7 @@ class DecisionAction:
 @dataclass
 class DecisionRecord:
     """
-    OpenClaw 的结构化决策回执。
+    DeskCanvas 的结构化决策回执。
     """
     page_state: str = ""
     task_understanding: str = ""

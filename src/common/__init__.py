@@ -15,7 +15,7 @@ __all__ = [
     "WindowInfo", "Screenshot", "Rect", "Candidate", "PageModel",
     "ActionStep", "ActionResult", "TaskRequest", "TaskResponse",
     "OperationPackManifest",
-    "OpenClawError", "AppNotFoundError", "AppLaunchError", "WindowNotFoundError",
+    "DeskCanvasError", "AppNotFoundError", "AppLaunchError", "WindowNotFoundError",
     "ElementNotFoundError", "PageRecognitionError", "ActionExecutionError",
     "VerificationError", "DriftDetectedError", "ConfigError", "DatabaseError",
     "MemoryError", "SafetyError",

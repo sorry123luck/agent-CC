@@ -32,7 +32,7 @@ def run_act_preflight_regression(
     sample_matrix: Path | None = None,
     act_client: ActClient | None = None,
     api_base: str = "http://127.0.0.1:8000",
-    probe_text: str = "OpenClaw matrix probe",
+    probe_text: str = "DeskCanvas matrix probe",
 ) -> dict[str, Any]:
     """Collect and analyze /act preflight responses for a detail directory."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -130,7 +130,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--sample-matrix", type=Path)
     parser.add_argument("--api-base", default="http://127.0.0.1:8000")
-    parser.add_argument("--probe-text", default="OpenClaw matrix probe")
+    parser.add_argument("--probe-text", default="DeskCanvas matrix probe")
     args = parser.parse_args()
     report = run_act_preflight_regression(
         detail_dir=args.detail_dir,

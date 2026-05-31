@@ -1,4 +1,4 @@
-"""Formal OpenClaw payload / decision helpers for runtime and tooling."""
+"""Formal DeskCanvas payload / decision helpers for runtime and tooling."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def build_openclaw_payload(
     task: str,
     max_candidates: int = 120,
 ) -> dict[str, Any]:
-    """Build the weak-structure payload sent to OpenClaw."""
+    """Build the weak-structure payload sent to DeskCanvas."""
     all_candidates = build_boundary_candidates(snapshot, max_candidates=None)
     ranked_candidates = _rank_candidates_for_openclaw(all_candidates)
     candidates = _select_candidates_for_openclaw(
@@ -64,7 +64,7 @@ def build_openclaw_payload(
 
 
 def normalize_decision_record(decision: dict[str, Any] | str) -> dict[str, Any]:
-    """Normalize an OpenClaw decision JSON to the repo's canonical decision record."""
+    """Normalize an DeskCanvas decision JSON to the repo's canonical decision record."""
     if isinstance(decision, str):
         decision = json.loads(decision)
 

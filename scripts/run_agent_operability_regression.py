@@ -46,7 +46,7 @@ def run_agent_operability_regression(
     control_transition_graph_file: Path | None = None,
     vlm_quality_dir: Path | None = None,
     api_base: str = "http://127.0.0.1:8000",
-    probe_text: str = "OpenClaw matrix probe",
+    probe_text: str = "DeskCanvas matrix probe",
     act_client: run_act_preflight_regression.ActClient | None = None,
 ) -> dict[str, Any]:
     """Run page, act, and closure reports into one output directory."""
@@ -211,7 +211,7 @@ def main() -> int:
     parser.add_argument("--control-transition-graph-file", type=Path)
     parser.add_argument("--vlm-quality-dir", type=Path)
     parser.add_argument("--api-base", default="http://127.0.0.1:8000")
-    parser.add_argument("--probe-text", default="OpenClaw matrix probe")
+    parser.add_argument("--probe-text", default="DeskCanvas matrix probe")
     args = parser.parse_args()
     summary = run_agent_operability_regression(
         matrix_dir=args.matrix_dir,
