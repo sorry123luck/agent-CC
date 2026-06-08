@@ -912,13 +912,18 @@ def _collect_one_window(
                 timeout_seconds=wait_enhance_seconds,
             )
             detail = session.get(f"{base_url}/api/v1/canvases/{observe['canvas_id']}", timeout=30).json()
-        dry = session.post(
-            f"{base_url}/api/v1/canvases/{observe['canvas_id']}/semantic-completion",
-            json={"dry_run": True, "deadline_ms": deadline_ms},
-            timeout=30,
-        )
-        dry.raise_for_status()
-        semantic = dry.json()
+        try:
+            dry = session.post(
+                f"{base_url}/api/v1/canvases/{observe['canvas_id']}/semantic-completion",
+                json={"dry_run": True, "deadline_ms": deadline_ms},
+                timeout=30,
+            )
+            dry.raise_for_status()
+            semantic = dry.json()
+        except Exception as exc:  # noqa: BLE001 - semantic dry-run is diagnostic unless VLM is requested.
+            semantic = _semantic_dry_run_failure(str(exc))
+            if run_vlm:
+                raise
         if run_vlm:
             allowed_purposes = {
                 str(purpose).strip()
@@ -960,6 +965,22 @@ def _collect_one_window(
         error = str(exc)
     row = build_matrix_row(window=window, observe=observe, semantic=semantic, detail=detail, error=error)
     return row, observe, semantic, detail
+
+
+def _semantic_dry_run_failure(error: str) -> dict[str, Any]:
+    return {
+        "status": "dry_run_failed",
+        "next_action": "retry_semantic_completion",
+        "stages": [
+            {
+                "name": "semantic_completion_dry_run",
+                "status": "failed",
+                "error": error,
+            }
+        ],
+        "roi_vlm": {"jobs": []},
+        "error": error,
+    }
 
 
 def _wait_for_enhancement(

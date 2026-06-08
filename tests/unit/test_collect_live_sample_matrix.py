@@ -939,6 +939,50 @@ def test_collect_one_window_can_wait_for_async_enhancement(tmp_path):
     assert detail["detail_call"] == 2
 
 
+def test_collect_one_window_treats_semantic_dry_run_failure_as_diagnostic_without_vlm(tmp_path):
+    module = _load_module()
+
+    class Response:
+        def __init__(self, payload=None, *, fail=False):
+            self._payload = payload or {}
+            self._fail = fail
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self._fail:
+                raise RuntimeError("semantic 500")
+
+    class Session:
+        def post(self, url, json=None, timeout=None):
+            if url.endswith("/api/v1/observe"):
+                return Response({"canvas_id": "snap_1", "elapsed_ms": 1})
+            if url.endswith("/semantic-completion"):
+                return Response(fail=True)
+            raise AssertionError(url)
+
+        def get(self, url, timeout=None):
+            return Response({"canvas_id": "snap_1", "elements": [], "regions": []})
+
+    row, _observe, semantic, _detail = module._collect_one_window(
+        session=Session(),
+        base_url="http://api",
+        output_dir=tmp_path,
+        window={"hwnd": 1, "title": "QQ", "process_name": "qq.exe"},
+        run_vlm=False,
+        max_rois_per_window=1,
+        wait_late_seconds=0,
+        deadline_ms=2000,
+        async_enhance=False,
+        wait_enhance_seconds=0,
+    )
+
+    assert row["error"] == ""
+    assert row["semantic_status"] == "dry_run_failed"
+    assert semantic["next_action"] == "retry_semantic_completion"
+
+
 def test_collect_one_window_polls_for_late_vlm_merge(tmp_path):
     module = _load_module()
 

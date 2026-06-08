@@ -28,11 +28,11 @@ from src.windows import window_action_context as action_ctx
 
 
 DEFAULT_TEXTS = {
-    "qq.exe": "DeskCanvas send probe",
-    "weixin.exe": "DeskCanvas send probe",
-    "wechat.exe": "DeskCanvas send probe",
-    "feishu.exe": "DeskCanvas send probe",
-    "lark.exe": "DeskCanvas send probe",
+    "qq.exe": "OpenClaw send probe",
+    "weixin.exe": "OpenClaw send probe",
+    "wechat.exe": "OpenClaw send probe",
+    "feishu.exe": "OpenClaw send probe",
+    "lark.exe": "OpenClaw send probe",
 }
 
 
@@ -721,7 +721,7 @@ def main() -> int:
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
-    parser.add_argument("--text", action="append", default=[], help="Override text, e.g. qq.exe=DeskCanvas probe")
+    parser.add_argument("--text", action="append", default=[], help="Override text, e.g. qq.exe=OpenClaw probe")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--send", action="store_true")
     parser.add_argument("--keep-text", action="store_true", help="Keep typed probe text when --execute is used without --send")

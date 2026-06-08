@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import queue
 import shutil
 import subprocess
 import tempfile
 import threading
-import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,19 @@ class OCRExtractionResult:
     fallback_reason: str | None = None
 
 
+def _default_worker_python() -> str:
+    """Resolve OCR worker Python: env > known venv > empty string."""
+    import shutil
+    env = os.environ.get("OPENCLAW_OCR_PYTHON")
+    if env and Path(env).exists():
+        return env
+    candidate = r"D:\ocr-paddle-env\Scripts\python.exe"
+    if Path(candidate).exists():
+        return candidate
+    # Last resort: hope paddleocr is in current env
+    return shutil.which("python") or "python"
+
+
 @dataclass
 class OCRServiceConfig:
     """Service-side OCR bridge configuration."""
@@ -55,12 +69,13 @@ class OCRServiceConfig:
     provider: str = "paddleocr_bridge"
     lang: str = "en"
     output_bb_format: str = "xyxy"
-    worker_python: str = ""
+    worker_python: str = field(default_factory=_default_worker_python)
     worker_script: str = str(_ROOT_DIR / "vendor" / "omniparser_runtime" / "workers" / "paddleocr_worker.py")
     persistent_worker_script: str = str(_ROOT_DIR / "scripts" / "paddleocr_persistent_worker.py")
     worker_mode: str = "persistent"
     worker_timeout_seconds: int = 120
     bridge_enabled: bool = True
+    max_image_side: int = 2400
 
 
 class _PersistentOCRWorker:
@@ -219,6 +234,20 @@ class OCRService:
             filter_pure_symbols=False,
         )
 
+    def health_status(self) -> dict[str, Any]:
+        """Return persistent worker health probe (non-intrusive, no OCR call)."""
+        worker = getattr(self, "_persistent_worker", None)
+        proc = getattr(worker, "_process", None) if worker else None
+        alive = proc is not None and proc.poll() is None
+        return {
+            "provider": self._config.provider,
+            "worker_mode": self._config.worker_mode,
+            "bridge_enabled": self._config.bridge_enabled,
+            "worker_alive": alive,
+            "worker_timeout_seconds": self._config.worker_timeout_seconds,
+            "max_image_side": self._config.max_image_side,
+        }
+
     def extract(
         self,
         image: Image.Image,
@@ -256,6 +285,16 @@ class OCRService:
         working_image = image.crop(region) if region else image
         region_offset_x = region[0] if region else 0
         region_offset_y = region[1] if region else 0
+        if self._should_tile_wide_image(working_image):
+            return self._extract_tiled_wide_image(
+                working_image=working_image,
+                used_region=region,
+                region_offset=(region_offset_x, region_offset_y),
+                min_text_length=min_text_length,
+                filter_pure_digits=filter_pure_digits,
+                filter_pure_symbols=filter_pure_symbols,
+            )
+        working_image, scale_x, scale_y = self._resize_to_budget(working_image)
 
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
             temp_path = Path(temp_file.name)
@@ -301,6 +340,7 @@ class OCRService:
             blocks = self._parse_blocks(
                 payload=payload,
                 region_offset=(region_offset_x, region_offset_y),
+                scale=(scale_x, scale_y),
                 min_text_length=min_text_length,
                 filter_pure_digits=filter_pure_digits,
                 filter_pure_symbols=filter_pure_symbols,
@@ -383,6 +423,7 @@ class OCRService:
         self,
         payload: dict[str, Any],
         region_offset: tuple[int, int],
+        scale: tuple[float, float],
         min_text_length: int,
         filter_pure_digits: bool,
         filter_pure_symbols: bool,
@@ -405,7 +446,7 @@ class OCRService:
             if filter_pure_symbols and self._is_pure_symbols(normalized_text):
                 continue
 
-            bbox = self._normalize_bbox(boxes[index], offset_x=offset_x, offset_y=offset_y)
+            bbox = self._normalize_bbox(boxes[index], offset_x=offset_x, offset_y=offset_y, scale=scale)
             if bbox is None:
                 continue
 
@@ -424,6 +465,7 @@ class OCRService:
         bbox: Any,
         offset_x: int = 0,
         offset_y: int = 0,
+        scale: tuple[float, float] = (1.0, 1.0),
     ) -> tuple[int, int, int, int] | None:
         """Normalize xyxy/xywh arrays into absolute xyxy."""
         if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
@@ -432,11 +474,12 @@ class OCRService:
         if self._config.output_bb_format == "xywh":
             x2 = x1 + x2
             y2 = y1 + y2
+        scale_x, scale_y = scale
         return (
-            int(x1) + offset_x,
-            int(y1) + offset_y,
-            int(x2) + offset_x,
-            int(y2) + offset_y,
+            int(round(float(x1) * scale_x)) + offset_x,
+            int(round(float(y1) * scale_y)) + offset_y,
+            int(round(float(x2) * scale_x)) + offset_x,
+            int(round(float(y2) * scale_y)) + offset_y,
         )
 
     def _load_config(self, config_path: Path) -> OCRServiceConfig:
@@ -449,7 +492,9 @@ class OCRService:
             provider=ocr_cfg.get("provider", "paddleocr_bridge"),
             lang=ocr_cfg.get("lang", "en"),
             output_bb_format=ocr_cfg.get("output_bb_format", "xyxy"),
-            worker_python=ocr_cfg.get("worker_python", OCRServiceConfig.worker_python),
+            worker_python=os.environ.get("OPENCLAW_OCR_PYTHON")
+                or ocr_cfg.get("worker_python", "")
+                or _default_worker_python(),
             worker_script=ocr_cfg.get("worker_script", OCRServiceConfig.worker_script),
             persistent_worker_script=ocr_cfg.get(
                 "persistent_worker_script",
@@ -458,6 +503,108 @@ class OCRService:
             worker_mode=ocr_cfg.get("worker_mode", "persistent"),
             worker_timeout_seconds=int(ocr_cfg.get("worker_timeout_seconds", 120)),
             bridge_enabled=bool(ocr_cfg.get("bridge_enabled", True)),
+            max_image_side=int(ocr_cfg.get("max_image_side", OCRServiceConfig.max_image_side)),
+        )
+
+    def _resize_to_budget(self, image: Image.Image) -> tuple[Image.Image, float, float]:
+        """Downscale oversized OCR input while preserving bbox reversibility."""
+        max_side = max(1, int(getattr(self._config, "max_image_side", 2400) or 2400))
+        width, height = image.size
+        longest = max(width, height)
+        if longest <= max_side:
+            return image, 1.0, 1.0
+        ratio = max_side / float(longest)
+        resized_size = (max(1, int(round(width * ratio))), max(1, int(round(height * ratio))))
+        resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+        resized = image.resize(resized_size, resampling)
+        return resized, width / resized_size[0], height / resized_size[1]
+
+    def _should_tile_wide_image(self, image: Image.Image) -> bool:
+        width, height = image.size
+        max_side = max(1, int(getattr(self._config, "max_image_side", 2400) or 2400))
+        return width > max_side and height > 0 and (width / height) >= 6.0
+
+    def _extract_tiled_wide_image(
+        self,
+        *,
+        working_image: Image.Image,
+        used_region: tuple[int, int, int, int] | None,
+        region_offset: tuple[int, int],
+        min_text_length: int,
+        filter_pure_digits: bool,
+        filter_pure_symbols: bool,
+    ) -> OCRExtractionResult:
+        max_side = max(1, int(getattr(self._config, "max_image_side", 2400) or 2400))
+        width, height = working_image.size
+        all_blocks: list[OCRTextBlock] = []
+        errors: list[str] = []
+        elapsed_total = 0.0
+        worker_command: list[str] = []
+        worker_mode = self._config.worker_mode
+        worker_reused = False
+        startup_seconds = 0.0
+
+        for left in range(0, width, max_side):
+            right = min(width, left + max_side)
+            tile = working_image.crop((left, 0, right, height))
+            result = self.extract_with_metadata(
+                tile,
+                min_text_length=min_text_length,
+                filter_pure_digits=filter_pure_digits,
+                filter_pure_symbols=filter_pure_symbols,
+                region=None,
+            )
+            worker_command = result.worker_command or worker_command
+            worker_mode = result.worker_mode or worker_mode
+            worker_reused = worker_reused or result.worker_reused
+            if result.startup_seconds is not None:
+                startup_seconds += float(result.startup_seconds)
+            if result.elapsed_seconds is not None:
+                elapsed_total += float(result.elapsed_seconds)
+            if not result.success:
+                errors.append(str(result.error or "tile_ocr_failed"))
+                continue
+            for block in result.blocks:
+                x1, y1, x2, y2 = block.bbox
+                all_blocks.append(
+                    OCRTextBlock(
+                        text=block.text,
+                        bbox=(
+                            x1 + region_offset[0] + left,
+                            y1 + region_offset[1],
+                            x2 + region_offset[0] + left,
+                            y2 + region_offset[1],
+                        ),
+                        confidence=block.confidence,
+                    )
+                )
+
+        if not all_blocks and errors:
+            return OCRExtractionResult(
+                provider=self._config.provider,
+                worker_command=worker_command,
+                elapsed_seconds=elapsed_total or None,
+                used_region=used_region,
+                success=False,
+                error="; ".join(errors[:3]),
+                worker_mode=worker_mode,
+                worker_reused=worker_reused,
+                startup_seconds=startup_seconds or None,
+                fallback_reason="tiled_wide_image",
+            )
+        return OCRExtractionResult(
+            blocks=all_blocks,
+            provider=self._config.provider,
+            worker_command=worker_command,
+            elapsed_seconds=elapsed_total or None,
+            raw_format=self._config.output_bb_format,
+            used_region=used_region,
+            success=True,
+            worker_mode=worker_mode,
+            worker_reused=worker_reused,
+            startup_seconds=startup_seconds or None,
+            fallback_reason="tiled_wide_image",
+            error="; ".join(errors[:3]) if errors else None,
         )
 
     def _is_pure_symbols(self, text: str) -> bool:

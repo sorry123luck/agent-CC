@@ -1,4 +1,4 @@
-"""Check DeskCanvas runtime ports before starting local services.
+"""Check OpenClaw runtime ports before starting local services.
 
 This guard is intentionally read-only: it probes configured endpoints and
 reports conflicts, but it does not start or stop any process.
@@ -194,7 +194,7 @@ def evaluate_runtime_targets(
             RuntimeIssue(
                 level="warning",
                 code="api_health_unexpected_body",
-                message=f"API /health responded but did not look like DeskCanvas: {api_probe.body_excerpt[:80]}",
+                message=f"API /health responded but did not look like OpenClaw: {api_probe.body_excerpt[:80]}",
             )
         )
     elif api_probe.status is not None and not api_probe.ok:
@@ -222,7 +222,7 @@ def evaluate_runtime_targets(
                     level="error",
                     code="openclaw_api_on_vision_port",
                     message=(
-                        "Vision probe failed and the same port responds like DeskCanvas API; "
+                        "Vision probe failed and the same port responds like OpenClaw API; "
                         f"free the OmniParser port before observe: {targets.vision_probe_url}"
                     ),
                 )
@@ -249,7 +249,7 @@ def evaluate_runtime_targets(
 
 
 def print_text_report(report: RuntimePortReport) -> None:
-    print("DeskCanvas runtime port check")
+    print("OpenClaw runtime port check")
     print(f"- API: {report.targets.api_health_url}")
     print(f"- Vision parse: {report.targets.vision_endpoint}")
     print(f"- Vision probe: {report.targets.vision_probe_url}")
@@ -265,7 +265,7 @@ def print_text_report(report: RuntimePortReport) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Check DeskCanvas API and OmniParser port health.")
+    parser = argparse.ArgumentParser(description="Check OpenClaw API and OmniParser port health.")
     parser.add_argument("--root", default=str(ROOT), help="Project root containing config/app.yaml and config/models.yaml")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     args = parser.parse_args(argv)

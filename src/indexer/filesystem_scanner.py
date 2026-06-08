@@ -19,8 +19,8 @@ class FilesystemScanner:
     INSTALL_DIRS = [
         r"C:\Program Files",
         r"C:\Program Files (x86)",
-        r"%LOCALAPPDATA%\Programs",
-        r"%LOCALAPPDATA%",
+        r"C:\Users\$USER\AppData\Local\Programs",
+        r"C:\Users\$USER\AppData\Local",
     ]
 
     # 排除的目录

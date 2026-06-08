@@ -1,4 +1,4 @@
-﻿"""Tests for chat target identity gate reports."""
+"""Tests for chat target identity gate reports."""
 
 from __future__ import annotations
 
@@ -65,13 +65,13 @@ def test_build_target_identity_check_marks_missing_texts_stop():
                 }
             ]
         },
-        targets={"feishu.exe_68378": ["示例联系人"]},
+        targets={"feishu.exe_68378": ["大笨蛋"]},
     )
 
     assert report["overall_decision"] == "stop"
     check = report["checks"][0]
     assert check["decision"] == "stop"
-    assert check["missing_texts"] == ["示例联系人"]
+    assert check["missing_texts"] == ["大笨蛋"]
     assert check["evidence_texts"] == [
         "目文希社区安全漏洞测试报告",
         "We detected unusual activity fromyourdevice or",
@@ -118,4 +118,3 @@ def test_analyze_target_identity_dir_loads_nested_readback_and_writes_reports(tm
     assert report["overall_decision"] == "proceed"
     assert (tmp_path / "out" / "target_identity_check.json").exists()
     assert (tmp_path / "out" / "target_identity_check.md").exists()
-

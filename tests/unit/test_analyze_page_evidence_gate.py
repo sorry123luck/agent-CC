@@ -1,4 +1,4 @@
-﻿"""Tests for generic page evidence gate reports."""
+"""Tests for generic page evidence gate reports."""
 
 from __future__ import annotations
 
@@ -55,13 +55,13 @@ def test_build_page_evidence_gate_stops_when_required_text_missing():
                 }
             ]
         },
-        requirements={"feishu.exe_68378": ["示例联系人"]},
+        requirements={"feishu.exe_68378": ["大笨蛋"]},
     )
 
     assert report["overall_decision"] == "stop"
     check = report["checks"][0]
     assert check["decision"] == "stop"
-    assert check["missing_texts"] == ["示例联系人"]
+    assert check["missing_texts"] == ["大笨蛋"]
     assert check["reason"] == "required evidence text not observed"
 
 
@@ -105,4 +105,3 @@ def test_analyze_page_evidence_dir_writes_page_evidence_files(tmp_path: Path):
     assert report["overall_decision"] == "proceed"
     assert (tmp_path / "out" / "page_evidence_gate.json").exists()
     assert (tmp_path / "out" / "page_evidence_gate.md").exists()
-

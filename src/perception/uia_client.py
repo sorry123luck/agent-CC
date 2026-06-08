@@ -4,6 +4,7 @@ UIA 客户端
 提供 UIA (UI Automation) 元素遍历和发现功能
 """
 from dataclasses import dataclass
+import time
 from typing import Callable
 
 import uiautomation as uia
@@ -69,6 +70,7 @@ class UIAClient:
         self._hwnd = hwnd
         self._root = uia.ControlFromHandle(hwnd)
         self._element_id_counter = 0  # 为每个 UIAElementInfo 生成唯一 element_id
+        self.find_all_bounded_diagnostics: dict[str, object] = {}
 
         if not self._root:
             raise ElementNotFoundError(f"无法获取窗口句柄 {hwnd} 的 UIA 根元素")
@@ -148,6 +150,44 @@ class UIAClient:
             所有子元素列表
         """
         return self._find_with_filter(lambda _: True)
+
+    def find_all_bounded(self, *, max_elements: int = 900, timeout_seconds: float = 8.0) -> list[UIAElementInfo]:
+        """Get UIA elements with a hard element/time budget for deep trees."""
+        started = time.perf_counter()
+        deadline = started + max(0.01, float(timeout_seconds))
+        limit = max(1, int(max_elements))
+        result: list[UIAElementInfo] = []
+        stack: list[uia.Control] = [self._root]
+        truncated = False
+        error_count = 0
+
+        while stack:
+            if len(result) >= limit or time.perf_counter() >= deadline:
+                truncated = True
+                break
+            control = stack.pop()
+            try:
+                result.append(self._to_element_info(control, self._next_element_id()))
+                if len(result) >= limit or time.perf_counter() >= deadline:
+                    truncated = bool(stack)
+                    break
+                children = list(control.GetChildren())
+                stack.extend(reversed(children))
+            except Exception:
+                error_count += 1
+
+        self.find_all_bounded_diagnostics = {
+            "provider": "uia",
+            "mode": "bounded",
+            "max_elements": limit,
+            "timeout_seconds": float(timeout_seconds),
+            "visited_count": len(result),
+            "remaining_stack_count": len(stack),
+            "truncated": truncated or bool(stack),
+            "error_count": error_count,
+            "elapsed_seconds": time.perf_counter() - started,
+        }
+        return result
 
     def get_element_tree(
         self, max_depth: int = 10

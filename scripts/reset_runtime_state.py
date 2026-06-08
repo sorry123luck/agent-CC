@@ -1,4 +1,4 @@
-"""Reset DeskCanvas runtime state after backing up the SQLite database.
+"""Reset OpenClaw runtime state after backing up the SQLite database.
 
 This clears observed canvases, page models, processing jobs, candidate evidence,
 visual assets/observations, and VLM cached responses. It intentionally keeps
@@ -77,7 +77,7 @@ def _delete_warm_images() -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Backup DB and clear DeskCanvas runtime state.")
+    parser = argparse.ArgumentParser(description="Backup DB and clear OpenClaw runtime state.")
     parser.add_argument("--db", default=str(DEFAULT_DB), help="SQLite DB path")
     args = parser.parse_args()
 

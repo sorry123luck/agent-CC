@@ -1,4 +1,4 @@
-"""Image describer using a configurable vision API for UI element classification.
+"""Image describer using mimo-v2.5 API for UI element classification.
 
 Calls a vision-capable model to describe cropped UI element images.
 Used as a refinement step when OCR/OmniParser can't identify an element.
@@ -20,8 +20,8 @@ from src.common.config_manager import load_config
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_ENDPOINT = ""
-_DEFAULT_MODEL = ""
+_DEFAULT_ENDPOINT = "https://token-plan-cn.xiaomimimo.com/anthropic/v1/messages"
+_DEFAULT_MODEL = "mimo-v2.5"
 _DEFAULT_PROMPT = (
     "这是一个Windows桌面UI元素的截图。请简短描述这是什么类型的UI元素"
     "（图标/按钮/文字/输入框），以及在该软件中可能代表什么功能。"
@@ -45,10 +45,10 @@ def _get_config() -> dict[str, Any]:
             raw = yaml.safe_load(f)
         section = raw.get("models", {}).get("image_describe", {})
         return {
-            "enabled": section.get("enabled", False),
+            "enabled": section.get("enabled", True),
             "endpoint": section.get("endpoint", _DEFAULT_ENDPOINT),
             "api_key": os.environ.get(
-                section.get("api_key_env", "OPENCLAW_IMAGE_DESCRIBE_API_KEY"), ""
+                section.get("api_key_env", "ANTHROPIC_AUTH_TOKEN"), ""
             ),
             "model": section.get("model", _DEFAULT_MODEL),
             "max_tokens": section.get("max_tokens", 500),
@@ -57,9 +57,9 @@ def _get_config() -> dict[str, Any]:
         }
     except Exception:
         return {
-            "enabled": False,
+            "enabled": True,
             "endpoint": _DEFAULT_ENDPOINT,
-            "api_key": os.environ.get("OPENCLAW_IMAGE_DESCRIBE_API_KEY", ""),
+            "api_key": os.environ.get("ANTHROPIC_AUTH_TOKEN", ""),
             "model": _DEFAULT_MODEL,
             "max_tokens": 500,
             "timeout": 30,
@@ -78,8 +78,8 @@ def describe_image(image: Image.Image, prompt: str | None = None) -> str:
         Text description of the image, or empty string on failure.
     """
     cfg = _get_config()
-    if not cfg["enabled"] or not cfg["endpoint"] or not cfg["api_key"]:
-        logger.warning("Image describer disabled, missing endpoint, or missing API key")
+    if not cfg["enabled"] or not cfg["api_key"]:
+        logger.warning("Image describer disabled or no API key")
         return ""
 
     # Encode image to base64 PNG

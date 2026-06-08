@@ -1,4 +1,4 @@
-﻿"""Tests for perception quality, visual pattern, and ROI planning."""
+"""Tests for perception quality, visual pattern, and ROI planning."""
 
 from src.perception.geometric_partitioner import GeometricRegion
 from src.perception.page_compiler_models import (
@@ -272,7 +272,7 @@ def test_visual_pattern_marks_qq_private_and_group_variants():
         width=960,
         height=640,
         elements=[
-            _candidate("title", SemanticRole.BUTTON, bounds=(330, 32, 360, 54), text="sample_contact"),
+            _candidate("title", SemanticRole.BUTTON, bounds=(330, 32, 360, 54), text="jz"),
             _candidate("toolbar_group", SemanticRole.BUTTON, bounds=(876, 31, 900, 55), text="发起群聊"),
             _candidate("toolbar_emoji", bounds=(330, 441, 354, 465), text="表情"),
             _candidate("editor", SemanticRole.TEXT_INPUT, bounds=(310, 465, 780, 583), control_type="EditControl"),
@@ -335,9 +335,9 @@ def test_visual_pattern_detects_chat_search_results_for_qq_and_wechat():
         width=960,
         height=640,
         elements=[
-            _candidate("search", SemanticRole.SEARCH_INPUT, bounds=(76, 28, 260, 56), text="Qsample_contact", control_type="ComboBox"),
+            _candidate("search", SemanticRole.SEARCH_INPUT, bounds=(76, 28, 260, 56), text="Qjz", control_type="ComboBox"),
             _candidate("contact_tab", bounds=(76, 70, 120, 90), text="联系人"),
-            _candidate("global_search", SemanticRole.SEARCH_INPUT, bounds=(124, 331, 294, 369), text="进入全网搜索sample_contact"),
+            _candidate("global_search", SemanticRole.SEARCH_INPUT, bounds=(124, 331, 294, 369), text="进入全网搜索jz"),
             _candidate("editor", SemanticRole.TEXT_INPUT, bounds=(310, 465, 780, 583), control_type="EditControl"),
             _candidate("send", SemanticRole.BUTTON, bounds=(665, 599, 729, 625), text="发送"),
         ],
@@ -421,8 +421,8 @@ def test_visual_pattern_detects_feishu_search_overlay():
         height=768,
         elements=[
             _candidate("modal", bounds=(101, 50, 917, 717), text="search-command-bar"),
-            _candidate("query", SemanticRole.SEARCH_INPUT, bounds=(163, 81, 353, 113), text="示例联系人"),
-            _candidate("result", bounds=(122, 189, 890, 277), text="示例联系人 Openclaw"),
+            _candidate("query", SemanticRole.SEARCH_INPUT, bounds=(163, 81, 353, 113), text="大笨蛋"),
+            _candidate("result", bounds=(122, 189, 890, 277), text="大笨蛋 Openclaw"),
             _candidate("tool_1", bounds=(731, 702, 759, 730)),
             _candidate("send", bounds=(958, 704, 982, 732)),
         ],
@@ -441,8 +441,8 @@ def test_roi_plan_uses_search_specific_regions():
         width=960,
         height=640,
         elements=[
-            _candidate("search", SemanticRole.SEARCH_INPUT, bounds=(76, 28, 260, 56), text="Qsample_contact", control_type="ComboBox"),
-            _candidate("global_search", SemanticRole.SEARCH_INPUT, bounds=(124, 331, 294, 369), text="进入全网搜索sample_contact"),
+            _candidate("search", SemanticRole.SEARCH_INPUT, bounds=(76, 28, 260, 56), text="Qjz", control_type="ComboBox"),
+            _candidate("global_search", SemanticRole.SEARCH_INPUT, bounds=(124, 331, 294, 369), text="进入全网搜索jz"),
             _candidate("editor", SemanticRole.TEXT_INPUT, bounds=(310, 465, 780, 583), control_type="EditControl"),
             _candidate("send", SemanticRole.BUTTON, bounds=(665, 599, 729, 625), text="发送"),
         ],
@@ -606,4 +606,3 @@ def test_roi_plan_uses_mode_specific_regions_for_new_live_samples():
         canvas = _canvas(page_class=page_class, width=1200, height=760)
         plan = planner.plan(canvas)
         assert [roi.purpose for roi in plan.rois[: len(expected_purposes)]] == expected_purposes
-

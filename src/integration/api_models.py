@@ -69,6 +69,7 @@ class ObserveResponse(BaseModel):
     perception_quality: dict[str, Any] = Field(default_factory=dict)
     visual_pattern: dict[str, Any] = Field(default_factory=dict)
     roi_selection_plan: dict[str, Any] = Field(default_factory=dict)
+    capture_diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 # ===== query =====
@@ -404,6 +405,10 @@ class CanvasDetail(BaseModel):
     processing_state: str = "local_ready"
     processing_error: str = ""
     processing_updated_at: str = ""
+    icon_memory_pre_vlm_matches: dict[str, Any] = Field(default_factory=dict)
+    icon_memory_backfills: dict[str, Any] = Field(default_factory=dict)
+    icon_memory_roi_candidates: dict[str, Any] = Field(default_factory=dict)
+    icon_memory_roi_rejected: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WindowListItem(BaseModel):

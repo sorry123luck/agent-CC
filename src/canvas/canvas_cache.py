@@ -4,7 +4,7 @@ Stores InteractionCanvas instances keyed by canvas_id.
 Query, diff, remember, and feedback all retrieve canvases from here.
 
 Design: process-local OrderedDict with LRU eviction (L1) plus optional
-disk backed warm cache (L2) for screenshot persistence across restarts,
+disk-based warm cache (L2) for screenshot persistence across restarts,
 and DB persistence (L3) for full canvas serialization across restarts.
 """
 

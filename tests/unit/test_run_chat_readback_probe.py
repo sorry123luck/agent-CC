@@ -27,7 +27,7 @@ def test_write_readback_report(tmp_path: Path):
                 message_id="m1",
                 sender="me",
                 message_type="text",
-                text="DeskCanvas send probe",
+                text="OpenClaw send probe",
                 bounds=(700, 400, 920, 450),
                 confidence=0.92,
                 source="ocr_crop",
@@ -39,7 +39,7 @@ def test_write_readback_report(tmp_path: Path):
 
     data = json.loads((tmp_path / "chat_readback_report.json").read_text(encoding="utf-8"))
     assert data["overall"] == "pass"
-    assert data["results"][0]["events"][0]["text"] == "DeskCanvas send probe"
+    assert data["results"][0]["events"][0]["text"] == "OpenClaw send probe"
     assert (tmp_path / "chat_readback_report.md").exists()
 
 
@@ -76,7 +76,7 @@ def test_find_sent_message_crops_preserves_expected_text(tmp_path: Path):
             "sample": "feishu",
             "process_name": "feishu.exe",
             "hwnd": 44,
-            "text": "DeskCanvas readback probe Feishu 1735",
+            "text": "OpenClaw readback probe Feishu 1735",
             "sent_message_crop": str(crop),
         }
     ]
@@ -84,4 +84,4 @@ def test_find_sent_message_crops_preserves_expected_text(tmp_path: Path):
 
     crops = module.find_sent_message_crops(tmp_path)
 
-    assert crops[0]["text"] == "DeskCanvas readback probe Feishu 1735"
+    assert crops[0]["text"] == "OpenClaw readback probe Feishu 1735"

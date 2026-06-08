@@ -37,7 +37,7 @@ def _complete_act_response(action: str) -> dict:
             },
             "verification_plan": {
                 "readback_plan": {
-                    "expected_text": "DeskCanvas matrix probe",
+                    "expected_text": "OpenClaw matrix probe",
                     "request": {"region_role": "message_stream"},
                 },
                 "state_probe_plan": {"current": {"input_state": "empty", "send_enabled": False}},
@@ -111,6 +111,8 @@ def test_runner_writes_page_act_closure_and_summary(tmp_path: Path):
     assert (out_dir / "act_preflight_matrix_report.json").exists()
     assert (out_dir / "input_safety_readiness_report.json").exists()
     assert (out_dir / "sample_coverage_report.json").exists()
+    assert (out_dir / "sample_collection_plan.json").exists()
+    assert summary["outputs"]["sample_collection_plan"] == "sample_collection_plan.json"
     assert (out_dir / "goal_progress_report.json").exists()
     assert (out_dir / "recognition_closure_report.json").exists()
     assert (out_dir / "agent_operability_regression_summary.md").exists()

@@ -1,6 +1,6 @@
 """
 CLI 命令行接口
-提供命令行方式调用 DeskCanvas 功能
+提供命令行方式调用 OpenClaw Desktop Agent 功能
 """
 
 import json
@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.indexer.catalog_service import CatalogService
 from src.common.logger import setup_logger, logger
 
-app = typer.Typer(help="DeskCanvas CLI")
+app = typer.Typer(help="OpenClaw Desktop Agent CLI")
 
 
 @app.command()
@@ -220,7 +220,7 @@ def build_openclaw_payload(
     max_candidates: int = 120,
 ):
     """
-    根据 snapshot.json 构建给 DeskCanvas 的弱结构输入。
+    根据 snapshot.json 构建给 OpenClaw 的弱结构输入。
     """
     setup_logger()
 
@@ -299,7 +299,7 @@ def normalize_decision_record(
     output_path: str | None = None,
 ):
     """
-    将 DeskCanvas 返回的 JSON 标准化为仓库内 decision_record 结构。
+    将 OpenClaw 返回的 JSON 标准化为仓库内 decision_record 结构。
     """
     setup_logger()
 
@@ -356,7 +356,7 @@ def reanalyze_focus_region(
     max_candidates: int = 120,
 ):
     """
-    根据 focus_bbox 对已有截图局部裁图，重跑 OCR / vision，并生成第二轮 DeskCanvas payload。
+    根据 focus_bbox 对已有截图局部裁图，重跑 OCR / vision，并生成第二轮 OpenClaw payload。
     """
     setup_logger()
 

@@ -11,6 +11,8 @@
 """
 import logging
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +42,32 @@ from src.common.config_manager import load_config
 logger = logging.getLogger(__name__)
 
 
+@contextmanager
+def _uia_com_context() -> Iterator[None]:
+    """Initialize COM for UIA on the current thread when pywin32 is available."""
+    pythoncom = None
+    initialized = False
+    try:
+        import pythoncom as _pythoncom
+
+        pythoncom = _pythoncom
+        pythoncom.CoInitialize()
+        initialized = True
+    except ImportError:
+        pythoncom = None
+    except Exception:
+        pythoncom = None
+
+    try:
+        yield
+    finally:
+        if initialized and pythoncom is not None:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+
+
 @dataclass
 class ZonePageStructure:
     """
@@ -64,6 +92,7 @@ class ZonePageStructure:
     vision_control_groups: list[dict[str, Any]] = field(default_factory=list)
     vision_interaction_hints: list[dict[str, Any]] = field(default_factory=list)
     structure_evidence_score: float | None = None
+    uia_provider_details: dict[str, Any] = field(default_factory=dict)
     fast_mode: bool = False
 
 
@@ -86,6 +115,8 @@ class PerceptionService:
         self._element_merger = ElementMerger()
         self._zone_partitioner = ZonePartitioner(merger=self._element_merger)
         self._vision_provider = OmniParserRemoteVisionProvider()
+        from src.runtime.fallback_policy import FallbackPolicy
+        self._fallback_policy = FallbackPolicy()
         # VLM provider — lazy init from config
         from src.perception.providers.vlm_provider import VLMProvider
         self._vlm_provider = VLMProvider()
@@ -117,6 +148,9 @@ class PerceptionService:
         _t0 = _time.perf_counter()
         _sub_timing: dict[str, float] = {}
 
+        from src.runtime.timeout_budget import TimeoutBudget, DEFAULT_OBSERVE_BUDGET_SECONDS
+        budget = TimeoutBudget(total_seconds=DEFAULT_OBSERVE_BUDGET_SECONDS)
+
         # 1. 获取窗口信息
         enum_svc = WindowEnumService()
         all_windows = enum_svc.enumerate_all(refresh=True)
@@ -129,17 +163,53 @@ class PerceptionService:
 
         # 2. 获取 UIA 元素（屏幕绝对坐标）
         _t_uia = _time.perf_counter()
+        uia_provider_details: dict[str, Any] = {"provider": "uia", "success": False}
         try:
-            uia_client = UIAClient(hwnd)
-            if fast_mode or lightweight_uia:
-                # Fast path must return quickly even for apps with slow/deep UIA
-                # trees. Full local vision/semantic enhancement runs separately.
-                uia_elements = [uia_client.get_root_element()]
-            else:
-                uia_elements = uia_client.find_all()
-        except Exception:
+            with _uia_com_context():
+                uia_client = UIAClient(hwnd)
+                if fast_mode or lightweight_uia:
+                    # Fast path must return quickly even for apps with slow/deep UIA
+                    # trees. Full local vision/semantic enhancement runs separately.
+                    uia_elements = [uia_client.get_root_element()]
+                    uia_provider_details.update(
+                        {
+                            "success": True,
+                            "mode": "root_only",
+                            "reason": "fast_mode" if fast_mode else "lightweight_uia",
+                            "element_count": len(uia_elements),
+                        }
+                    )
+                elif self._should_use_bounded_uia(window_info):
+                    uia_elements = uia_client.find_all_bounded(max_elements=900, timeout_seconds=8.0)
+                    uia_provider_details.update(getattr(uia_client, "find_all_bounded_diagnostics", {}) or {})
+                    uia_provider_details.update(
+                        {
+                            "success": True,
+                            "mode": uia_provider_details.get("mode") or "bounded",
+                            "element_count": len(uia_elements),
+                        }
+                    )
+                else:
+                    uia_elements = uia_client.find_all()
+                    uia_provider_details.update(
+                        {
+                            "success": True,
+                            "mode": "full",
+                            "element_count": len(uia_elements),
+                        }
+                    )
+        except Exception as exc:
             uia_elements = []
+            uia_provider_details.update({"success": False, "error": str(exc), "element_count": 0})
         _sub_timing["uia_enum"] = _time.perf_counter() - _t_uia
+        uia_provider_details["elapsed_seconds"] = _sub_timing["uia_enum"]
+        budget.record("uia", _sub_timing["uia_enum"])
+        from src.runtime.fallback_policy import ProviderResult as _PR
+        self._fallback_policy.record_result(_PR(
+            provider_id="uia", success=bool(uia_provider_details.get("success")),
+            elapsed_seconds=_sub_timing["uia_enum"],
+            error=str(uia_provider_details.get("error") or "") or None,
+        ))
 
         # 2.1 过滤无效坐标元素（仍在屏幕绝对坐标下进行）
         uia_elements = self._filter_invalid_elements(uia_elements, window_info)
@@ -206,7 +276,10 @@ class PerceptionService:
         vision_interaction_hints: list[dict[str, Any]] = []
         structure_evidence_score: float | None = None
         _t_ocr = _time.perf_counter()
-        if fast_mode or lightweight_uia:
+        budget.allocate("ocr", 30.0)
+        if budget.remaining() <= 0:
+            budget.skip("ocr", "budget_exhausted")
+        elif fast_mode or lightweight_uia:
             ocr_provider_details = {
                 "provider": "paddleocr_bridge",
                 "success": False,
@@ -244,11 +317,70 @@ class PerceptionService:
                         }
             except Exception:
                 pass
+        if screenshot and screenshot_size and not ocr_blocks and self._should_run_sparse_full_window_ocr(
+            uia_elements,
+            window_info,
+        ):
+            ocr_region, sparse_ocr_reason = self._sparse_ocr_region(screenshot_size, window_info)
+            skip_reason = self._sparse_full_window_ocr_skip_reason((ocr_region[2] - ocr_region[0], ocr_region[3] - ocr_region[1]))
+            if skip_reason:
+                ocr_provider_details = {
+                    "provider": "paddleocr_bridge",
+                    "success": False,
+                    "error": skip_reason,
+                    "elapsed_seconds": 0.0,
+                    "used_region": ocr_region,
+                    "fallback_reason": sparse_ocr_reason,
+                    "block_count": 0,
+                }
+            else:
+                try:
+                    ocr_result = get_ocr_service().extract_with_metadata(
+                        screenshot,
+                        region=ocr_region,
+                    )
+                    ocr_blocks = ocr_result.blocks
+                    ocr_auxiliary_texts = [block.text for block in ocr_blocks]
+                    ocr_provider_details = {
+                        "provider": ocr_result.provider,
+                        "success": ocr_result.success,
+                        "error": ocr_result.error,
+                        "elapsed_seconds": ocr_result.elapsed_seconds,
+                        "used_region": ocr_result.used_region,
+                        "worker_command": ocr_result.worker_command,
+                        "worker_mode": ocr_result.worker_mode,
+                        "worker_reused": ocr_result.worker_reused,
+                        "startup_seconds": ocr_result.startup_seconds,
+                        "fallback_reason": sparse_ocr_reason,
+                        "block_count": len(ocr_result.blocks),
+                    }
+                except Exception:
+                    pass
         _sub_timing["ocr"] = _time.perf_counter() - _t_ocr
+        budget.record("ocr", _sub_timing["ocr"])
 
         vision_candidates: list[dict[str, Any]] = []
         _t_vision = _time.perf_counter()
-        if fast_mode:
+        budget.allocate("omniparser", 90.0)
+        _omniparser_called = False
+        _op_skip, _op_reason = self._fallback_policy.should_skip("omniparser")
+        if _op_skip:
+            budget.skip("omniparser", _op_reason)
+            vision_provider_details = {
+                "provider": "omniparser",
+                "success": False,
+                "error": _op_reason,
+                "candidate_count": 0,
+            }
+        elif budget.remaining() <= 0:
+            budget.skip("omniparser", "budget_exhausted")
+            vision_provider_details = {
+                "provider": "omniparser",
+                "success": False,
+                "error": "budget_exhausted",
+                "candidate_count": 0,
+            }
+        elif fast_mode:
             vision_provider_details = {
                 "provider": "omniparser",
                 "success": False,
@@ -258,6 +390,7 @@ class PerceptionService:
         elif screenshot is not None:
             try:
                 vision_result = self._vision_provider.parse_screenshot(screenshot)
+                _omniparser_called = True
                 vision_provider_details = {
                     "provider": vision_result.provider,
                     "success": vision_result.success,
@@ -300,6 +433,7 @@ class PerceptionService:
                 if structure_evidence_score is not None:
                     vision_provider_details["structure_evidence_score"] = structure_evidence_score
             except Exception as exc:
+                _omniparser_called = True
                 vision_provider_details = {
                     "provider": "omniparser",
                     "success": False,
@@ -315,6 +449,14 @@ class PerceptionService:
                     vision_provider_details["fallback"] = "ocr_sidecar"
                     vision_provider_details["candidate_count"] = len(vision_candidates)
         _sub_timing["omniparser"] = _time.perf_counter() - _t_vision
+        budget.record("omniparser", _sub_timing["omniparser"])
+        if _omniparser_called:
+            self._fallback_policy.record_result(_PR(
+                provider_id="omniparser",
+                success=bool(vision_provider_details.get("success")),
+                elapsed_seconds=_sub_timing["omniparser"],
+                error=str(vision_provider_details.get("error") or "") or None,
+            ))
         if ocr_provider_details:
             ocr_provider_details.setdefault("wall_elapsed_seconds", _sub_timing["ocr"])
         if vision_provider_details:
@@ -326,7 +468,16 @@ class PerceptionService:
         # VLM internal enhancement: call after OmniParser if conditions met
         _t_vlm_local = _time.perf_counter()
         vlm_called = False
-        if screenshot is not None and self._should_call_vlm(
+        budget.allocate("vlm", 60.0)
+        _vlm_skip, _vlm_reason = self._fallback_policy.should_skip("vlm")
+        _vlm_skipped = False
+        if _vlm_skip:
+            budget.skip("vlm", _vlm_reason)
+            _vlm_skipped = True
+        elif budget.remaining() <= 0:
+            budget.skip("vlm", "budget_exhausted")
+            _vlm_skipped = True
+        elif screenshot is not None and self._should_call_vlm(
             allow_vlm, force_vlm, vision_candidates, vision_success
         ):
             try:
@@ -348,18 +499,29 @@ class PerceptionService:
                         })
                     vision_provider_details["vlm_candidate_count"] = len(vlm_raw)
                     logger.info("VLM added %d candidates", len(vlm_raw))
+                self._fallback_policy.record_result(_PR(
+                    provider_id="vlm", success=True,
+                    elapsed_seconds=0.0,
+                ))
             except Exception as exc:
                 logger.warning("VLM call failed: %s", exc)
                 vision_provider_details["vlm_error"] = str(exc)
+                self._fallback_policy.record_result(_PR(
+                    provider_id="vlm", success=False,
+                    elapsed_seconds=0.0, error=str(exc),
+                ))
         _sub_timing["vlm_local"] = _time.perf_counter() - _t_vlm_local
+        budget.record("vlm", _sub_timing["vlm_local"])
 
         _sub_timing["total"] = _time.perf_counter() - _t0
+        _sub_timing["budget"] = budget.summary()
+        _sub_timing["fallback"] = self._fallback_policy.summary()
         if ocr_provider_details:
             ocr_provider_details["analysis_timing"] = dict(_sub_timing)
         if vision_provider_details:
             vision_provider_details["analysis_timing"] = dict(_sub_timing)
         import sys
-        _timing_str = {k: f"{v:.3f}s" for k, v in _sub_timing.items()}
+        _timing_str = {k: (f"{v:.3f}s" if isinstance(v, (int, float)) else str(v)[:80]) for k, v in _sub_timing.items()}
         logger.info("PerceptionService.analyze timing: %s", _timing_str)
         print(f"PerceptionService.analyze timing: {_timing_str}", file=sys.stderr, flush=True)
 
@@ -380,6 +542,7 @@ class PerceptionService:
             vision_control_groups=vision_control_groups,
             vision_interaction_hints=vision_interaction_hints,
             structure_evidence_score=structure_evidence_score,
+            uia_provider_details=uia_provider_details,
             fast_mode=fast_mode,
         )
 
@@ -683,6 +846,9 @@ class PerceptionService:
         if zone_page.ocr_provider_details:
             snapshot.artifacts["ocr_provider"] = zone_page.ocr_provider_details
             snapshot.provider_trace.provider_details["ocr_bridge"] = zone_page.ocr_provider_details
+        if zone_page.uia_provider_details:
+            snapshot.artifacts["uia_provider"] = zone_page.uia_provider_details
+            snapshot.provider_trace.provider_details["uia_provider"] = zone_page.uia_provider_details
         if zone_page.screenshot_provider_details:
             snapshot.artifacts["screenshot_provider"] = zone_page.screenshot_provider_details
             snapshot.provider_trace.provider_details["screenshot_provider"] = zone_page.screenshot_provider_details
@@ -783,6 +949,32 @@ class PerceptionService:
                 snapshot.artifacts["partition_diagnostics"] = partition_diagnostics.to_dict()
         if fusion_diagnostics is not None:
             snapshot.artifacts["fusion_diagnostics"] = fusion_diagnostics.to_dict()
+
+        # Phase R2: StructuredRegion overlay (read-only, diagnostics only)
+        try:
+            from src.perception.structured_region_builder import StructuredRegionOverlayBuilder
+            overlay_builder = StructuredRegionOverlayBuilder()
+            fusion_diag_dict = fusion_diagnostics.to_dict() if fusion_diagnostics is not None else None
+            win_w, win_h = 0, 0
+            if snapshot.window and snapshot.window.rect_client:
+                rc = snapshot.window.rect_client
+                win_w = rc[2] - rc[0]
+                win_h = rc[3] - rc[1]
+            if win_w <= 0 and zone_page.screenshot_size:
+                win_w, win_h = zone_page.screenshot_size
+            structured_overlay = overlay_builder.build(
+                geometric_regions=geometric_regions,
+                fusion_diagnostics=fusion_diag_dict,
+                raw_elements=raw_elements if raw_elements else None,
+                ocr_blocks=[{"text": b.text, "bbox": b.bbox, "confidence": b.confidence} for b in zone_page.ocr_blocks] if zone_page.ocr_blocks else None,
+                vision_candidates=zone_page.vision_candidates if zone_page.vision_candidates else None,
+                window_width=win_w,
+                window_height=win_h,
+                screenshot=zone_page.screenshot,
+            )
+            snapshot.artifacts["structured_region_overlay"] = structured_overlay.to_dict()
+        except Exception:
+            logger.debug("StructuredRegion overlay failed, continuing without it", exc_info=True)
 
         if zone_page.screenshot_size is not None:
             snapshot.artifacts["screenshot_size"] = list(zone_page.screenshot_size)
@@ -1085,6 +1277,64 @@ class PerceptionService:
             return True
         return False
 
+    def _should_use_bounded_uia(self, window_info: WindowInfoExt | None) -> bool:
+        """Use bounded UIA traversal for apps with known deep accessibility trees."""
+        process_name = str(getattr(window_info, "process_name", "") or "").lower()
+        title = str(getattr(window_info, "title", "") or "").lower()
+        return (
+            process_name in {"chrome.exe", "code.exe", "msedge.exe"}
+            or "visual studio code" in title
+            or "chrome" in title
+        )
+
+    def _should_run_sparse_full_window_ocr(
+        self,
+        uia_elements: list[UIAElementInfo],
+        window_info: WindowInfoExt | None = None,
+    ) -> bool:
+        """Use OCR over the full screenshot when sparse UIA produced no text blocks."""
+        if len(uia_elements) <= 3:
+            return True
+        process_name = str(getattr(window_info, "process_name", "") or "").lower()
+        title = str(getattr(window_info, "title", "") or "").lower()
+        uia_blob = " ".join(
+            [
+                str(getattr(element, "name", "") or "")
+                for element in uia_elements[:12]
+            ]
+        ).lower()
+        self_drawn_sparse = (
+            process_name == "qq.exe"
+            or process_name.startswith("voicemeeter")
+            or title == "qq"
+            or "voicemeeter" in title
+            or "qq" in uia_blob
+            or "voicemeeter" in uia_blob
+        )
+        return self_drawn_sparse and len(uia_elements) <= 12
+
+    def _sparse_full_window_ocr_skip_reason(self, screenshot_size: tuple[int, int] | None) -> str | None:
+        if not screenshot_size:
+            return None
+        width, height = int(screenshot_size[0]), int(screenshot_size[1])
+        if width <= 0 or height <= 0:
+            return "sparse_full_window_ocr_skipped_invalid_screenshot_size"
+        if width > 2400 and (width / height) >= 6.0:
+            return "sparse_full_window_ocr_skipped_ultrawide_budget"
+        return None
+
+    def _sparse_ocr_region(
+        self,
+        screenshot_size: tuple[int, int],
+        window_info: WindowInfoExt | None = None,
+    ) -> tuple[tuple[int, int, int, int], str]:
+        width, height = int(screenshot_size[0]), int(screenshot_size[1])
+        process_name = str(getattr(window_info, "process_name", "") or "").lower()
+        title = str(getattr(window_info, "title", "") or "").lower()
+        if process_name.startswith("voicemeeter") or "voicemeeter" in title:
+            return (0, 0, width, min(height, int(height * 0.16))), "sparse_uia_top_band"
+        return (0, 0, width, height), "sparse_uia_full_window"
+
     def _collect_vision_candidates(
         self,
         screenshot: Image.Image | None,
@@ -1168,9 +1418,24 @@ class PerceptionService:
             if lr > win_w + margin or lb > win_h + margin:
                 continue
 
+            # Elements with no visible intersection with the screenshot window
+            # should not enter the final canvas. Partially out-of-bounds elements
+            # are clipped to keep query/action coordinates aligned to screenshot pixels.
+            if lr <= 0 or lb <= 0 or ll >= win_w or lt >= win_h:
+                continue
+            clipped = (
+                max(0, int(ll)),
+                max(0, int(lt)),
+                min(win_w, int(lr)),
+                min(win_h, int(lb)),
+            )
+            cl, ct, cr, cb = clipped
+            if cr <= cl or cb <= ct:
+                continue
+
             # 校验：宽高合理（至少 1px，不超过窗口 2 倍）
-            w = lr - ll
-            h = lb - lt
+            w = cr - cl
+            h = cb - ct
             if w < 1 or h < 1:
                 continue
             if w > win_w * 2 or h > win_h * 2:
@@ -1180,7 +1445,7 @@ class PerceptionService:
                 name=elem.name,
                 automation_id=elem.automation_id,
                 control_type=elem.control_type,
-                bounding_rect=local,
+                bounding_rect=clipped,
                 is_enabled=elem.is_enabled,
                 handle=elem.handle,
                 element_id=elem.element_id,

@@ -1,4 +1,4 @@
 """
 src package
-DeskCanvas Platform
+OpenClaw Desktop Agent Platform
 """

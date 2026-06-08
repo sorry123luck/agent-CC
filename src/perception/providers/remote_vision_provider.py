@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import os
 import subprocess
 import sys
@@ -17,6 +18,8 @@ from PIL import Image
 from src.common.utils import read_yaml
 from src.perception.page_compiler_models import InteractionCanvas, SurfaceType, WindowInfoSnapshot
 from src.perception.providers.base import PerceptionProviderBase
+
+logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_OMNI_RUNTIME = _PROJECT_ROOT / "vendor" / "omniparser_runtime"
@@ -123,6 +126,7 @@ class OmniParserRemoteVisionProvider(IRemoteVisionProvider):
         self._config = self._load_config(self._config_path)
         self._server_process: subprocess.Popen[str] | None = None
         self._server_log_handle: Any | None = None
+        self._raw_vision_cfg: dict[str, Any] = {}  # stored for WorkerManager paths
 
     @property
     def name(self) -> str:
@@ -359,6 +363,9 @@ class OmniParserRemoteVisionProvider(IRemoteVisionProvider):
         vision_cfg = (raw.get("models") or {}).get("vision") or {}
         endpoint = str(vision_cfg.get("endpoint", "http://127.0.0.1:8001/parse/"))
         probe_endpoint = str(vision_cfg.get("probe_endpoint") or self._derive_probe_endpoint(endpoint))
+        # Store raw config for WorkerManager path resolution
+        self._raw_vision_cfg = dict(vision_cfg)
+
         return RemoteVisionConfig(
             provider=str(vision_cfg.get("provider", "omniparser")),
             endpoint=self._normalize_parse_endpoint(endpoint),
@@ -443,6 +450,47 @@ class OmniParserRemoteVisionProvider(IRemoteVisionProvider):
             return False
 
     def _start_local_server(self) -> bool:
+        if self._server_process and self._server_process.poll() is None:
+            return True
+        # Delegate to WorkerManager for lifecycle management
+        try:
+            from src.runtime.worker_manager import get_worker_manager
+            from src.runtime.paths import RuntimePaths
+
+            vision_cfg = self._raw_vision_cfg or {}
+            ocr_cfg = {}
+            try:
+                from src.common.config_manager import load_config
+                cfg = load_config()
+                ocr_cfg = {
+                    "worker_python": cfg.ocr.worker_python,
+                    "persistent_worker_script": cfg.ocr.persistent_worker_script,
+                }
+            except Exception:
+                pass
+
+            paths = RuntimePaths.from_config(vision_cfg=vision_cfg, ocr_cfg=ocr_cfg)
+            wm = get_worker_manager(paths)
+            host, port = self._parse_host_port(self._config.endpoint)
+            worker = wm.start_omniparser(
+                preferred_port=port,
+                python_path=self._config.python_path,
+                startup_timeout=self._config.startup_timeout,
+            )
+            # Update config endpoint if port changed
+            if worker.endpoint and worker.endpoint != self._config.endpoint:
+                self._config = RemoteVisionConfig(
+                    **{**self._config.__dict__, "endpoint": worker.endpoint,
+                       "probe_endpoint": worker.probe_endpoint or self._config.probe_endpoint}
+                )
+            self._server_process = worker.process
+            return True
+        except Exception as exc:
+            logger.warning("WorkerManager failed to start OmniParser: %s", exc, exc_info=True)
+            return False
+
+    def _start_local_server_inline(self) -> bool:
+        """Legacy inline startup — kept as reference, not called by default."""
         if self._server_process and self._server_process.poll() is None:
             return True
         python_path = Path(self._config.python_path)
@@ -558,6 +606,13 @@ class OmniParserRemoteVisionProvider(IRemoteVisionProvider):
         return True
 
     def _stop_local_server(self) -> None:
+        try:
+            from src.runtime.worker_manager import get_worker_manager
+            wm = get_worker_manager()
+            wm.stop_worker("omniparser")
+        except Exception:
+            pass
+        # Also handle legacy direct process
         if self._server_process and self._server_process.poll() is None:
             try:
                 self._server_process.terminate()

@@ -28,6 +28,8 @@ _PROVIDER_ALIASES = {
     "omniparser_remote": "omni",
     "paddleocr_bridge": "ocr",
     "ocr_bridge": "ocr",
+    "app_layout": "uia",
+    "boundary_candidate": "uia",
 }
 
 

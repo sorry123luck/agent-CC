@@ -65,10 +65,13 @@ def test_sample_coverage_distinguishes_missing_and_invalid_tiny_windows():
     by_id = {item["requirement_id"]: item for item in report["requirements"]}
     assert by_id["qq_private_chat"]["status"] == "missing"
     assert by_id["qq_private_chat"]["reason"] == "no matching valid sample"
+    assert "--include-process qq.exe" in by_id["qq_private_chat"]["collection_hint"]
     assert by_id["flclash_dashboard"]["status"] == "missing"
     assert by_id["flclash_dashboard"]["reason"] == "only_minimized_windows"
+    assert "only_minimized_windows" in by_id["flclash_dashboard"]["collection_hint"]
     assert by_id["qq_valid_window"]["status"] == "invalid"
     assert "invalid_tiny_window_no_screenshot" in by_id["qq_valid_window"]["reason"]
+    assert "tiny windows are excluded" in by_id["qq_valid_window"]["collection_hint"]
 
 
 def test_analyze_sample_coverage_dirs_writes_outputs(tmp_path: Path):
@@ -87,6 +90,7 @@ def test_analyze_sample_coverage_dirs_writes_outputs(tmp_path: Path):
     markdown = (tmp_path / "out" / "sample_coverage_report.md").read_text(encoding="utf-8")
     assert "Sample Coverage Report" in markdown
     assert "wechat_chat" in markdown
+    assert "collection_hint" in markdown
 
 
 def test_analyze_sample_coverage_dirs_can_merge_multiple_matrix_dirs(tmp_path: Path):

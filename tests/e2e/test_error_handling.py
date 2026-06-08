@@ -80,7 +80,7 @@ def test_root_endpoint(client):
     resp = client.get("/")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["name"] == "DeskCanvas API"
+    assert data["name"] == "OpenClaw Desktop Agent API"
     assert data["version"] == "1.0.0"
     assert data["status"] == "running"
 

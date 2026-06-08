@@ -1,4 +1,4 @@
-﻿"""Tests for VLM Semantic Modeler — 核心编排 + 缓存 + 预算 + JSON 解析 + 落库 + payload。"""
+"""Tests for VLM Semantic Modeler — 核心编排 + 缓存 + 预算 + JSON 解析 + 落库 + payload。"""
 
 import json
 from unittest.mock import MagicMock, patch
@@ -1660,8 +1660,8 @@ class TestConfigHash:
             free_model_only=False, allow_free_models=True,
             save_raw_response=False, redact_dynamic_content=True,
         )
-        hash_a = _config_hash(**base_args, api_key="test-aaa")
-        hash_b = _config_hash(**base_args, api_key="test-bbb")
+        hash_a = _config_hash(**base_args, api_key="sk-aaa")
+        hash_b = _config_hash(**base_args, api_key="sk-bbb")
         hash_empty = _config_hash(**base_args, api_key="")
 
         assert hash_a != hash_b
@@ -1677,7 +1677,6 @@ class TestConfigHash:
             provider_variant="", fallback_provider="", fallback_model="",
             prompt_version="1.0", daily_call_limit=100, monthly_budget_usd=10.0,
             free_model_only=False, allow_free_models=True,
-            save_raw_response=False, redact_dynamic_content=True, api_key="test-abc",
+            save_raw_response=False, redact_dynamic_content=True, api_key="sk-abc",
         )
         assert _config_hash(**args) == _config_hash(**args)
-

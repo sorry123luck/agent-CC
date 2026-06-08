@@ -1,4 +1,4 @@
-﻿"""Unit tests for config_manager — verifies YAML read path and env overrides."""
+"""Unit tests for config_manager — verifies YAML read path and env overrides."""
 
 from __future__ import annotations
 
@@ -36,9 +36,9 @@ class TestConfigManagerReadPath:
     def test_load_config_reads_cloud_vision_api_key_env(self):
         yaml = {"models": {"cloud_vision": {"enabled": True, "api_key_env": "TEST_VLM_KEY"}}}
         with patch("src.common.config_manager._load_yaml", side_effect=_fake_models_yaml(yaml)):
-            with patch.dict(os.environ, {"TEST_VLM_KEY": "test-key-123"}):
+            with patch.dict(os.environ, {"TEST_VLM_KEY": "sk-test-123"}):
                 cfg = load_config()
-        assert cfg.vlm.api_key == "test-key-123"
+        assert cfg.vlm.api_key == "sk-test-123"
 
     def test_load_config_reads_cloud_vision_model_from_config(self):
         yaml = {"models": {"cloud_vision": {"enabled": True, "model": "claude-sonnet-4-20250514"}}}
@@ -110,7 +110,7 @@ class TestConfigManagerReadPath:
                 "enabled": True,
                 "provider": "qwen",
                 "model": "qwen3-vl-flash",
-                "api_key": "test-key",
+                "api_key": "sk-test",
             }),
             encoding="utf-8",
         )
@@ -131,4 +131,3 @@ class TestConfigManagerReadPath:
 
         assert cfg.semantic_modeler.proxy_url == ""
         assert cfg.semantic_modeler.proxy_port == 10808
-

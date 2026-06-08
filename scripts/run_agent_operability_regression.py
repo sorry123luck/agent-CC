@@ -25,6 +25,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import analyze_page_operability
 import analyze_input_safety_readiness
+import build_sample_collection_plan
 import analyze_goal_progress
 import analyze_recognition_closure
 import analyze_sample_coverage
@@ -46,7 +47,7 @@ def run_agent_operability_regression(
     control_transition_graph_file: Path | None = None,
     vlm_quality_dir: Path | None = None,
     api_base: str = "http://127.0.0.1:8000",
-    probe_text: str = "DeskCanvas matrix probe",
+    probe_text: str = "OpenClaw matrix probe",
     act_client: run_act_preflight_regression.ActClient | None = None,
 ) -> dict[str, Any]:
     """Run page, act, and closure reports into one output directory."""
@@ -85,6 +86,10 @@ def run_agent_operability_regression(
         matrix_dir=matrix_dir,
         output_dir=output_dir,
     )
+    sample_collection_plan = build_sample_collection_plan.build_sample_collection_plan(
+        coverage_report=sample_coverage_report,
+    )
+    build_sample_collection_plan.write_sample_collection_plan(sample_collection_plan, output_dir)
     transition_report: dict[str, Any] | None = None
     if search_probe_dir or transition_graph_file or control_transition_graph_file:
         transition_report = analyze_transition_readiness.analyze_transition_readiness_dirs(
@@ -137,6 +142,7 @@ def _summary(
         "act_preflight": "act_preflight/analysis/act_preflight_matrix_report.json",
         "input_safety": "input_safety_readiness_report.json",
         "sample_coverage": "sample_coverage_report.json",
+        "sample_collection_plan": "sample_collection_plan.json",
         "recognition_closure": "recognition_closure_report.json",
         "goal_progress": "goal_progress_report.json",
     }
@@ -211,7 +217,7 @@ def main() -> int:
     parser.add_argument("--control-transition-graph-file", type=Path)
     parser.add_argument("--vlm-quality-dir", type=Path)
     parser.add_argument("--api-base", default="http://127.0.0.1:8000")
-    parser.add_argument("--probe-text", default="DeskCanvas matrix probe")
+    parser.add_argument("--probe-text", default="OpenClaw matrix probe")
     args = parser.parse_args()
     summary = run_agent_operability_regression(
         matrix_dir=args.matrix_dir,

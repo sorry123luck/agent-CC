@@ -3,7 +3,7 @@
 """
 
 
-class DeskCanvasError(Exception):
+class OpenClawError(Exception):
     """基础异常类"""
     def __init__(self, message: str, code: str | None = None):
         self.message = message
@@ -11,61 +11,61 @@ class DeskCanvasError(Exception):
         super().__init__(self.message)
 
 
-class AppNotFoundError(DeskCanvasError):
+class AppNotFoundError(OpenClawError):
     """软件未找到"""
     pass
 
 
-class AppLaunchError(DeskCanvasError):
+class AppLaunchError(OpenClawError):
     """软件启动失败"""
     pass
 
 
-class WindowNotFoundError(DeskCanvasError):
+class WindowNotFoundError(OpenClawError):
     """窗口未找到"""
     pass
 
 
-class ElementNotFoundError(DeskCanvasError):
+class ElementNotFoundError(OpenClawError):
     """界面元素未找到"""
     pass
 
 
-class PageRecognitionError(DeskCanvasError):
+class PageRecognitionError(OpenClawError):
     """页面识别失败"""
     pass
 
 
-class ActionExecutionError(DeskCanvasError):
+class ActionExecutionError(OpenClawError):
     """动作执行失败"""
     pass
 
 
-class VerificationError(DeskCanvasError):
+class VerificationError(OpenClawError):
     """验证失败"""
     pass
 
 
-class DriftDetectedError(DeskCanvasError):
+class DriftDetectedError(OpenClawError):
     """页面漂移检测到"""
     pass
 
 
-class ConfigError(DeskCanvasError):
+class ConfigError(OpenClawError):
     """配置错误"""
     pass
 
 
-class DatabaseError(DeskCanvasError):
+class DatabaseError(OpenClawError):
     """数据库错误"""
     pass
 
 
-class MemoryError(DeskCanvasError):
+class MemoryError(OpenClawError):
     """记忆系统错误"""
     pass
 
 
-class SafetyError(DeskCanvasError):
+class SafetyError(OpenClawError):
     """安全拦截错误"""
     pass

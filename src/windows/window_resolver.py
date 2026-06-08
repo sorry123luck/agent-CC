@@ -14,6 +14,7 @@ Agent flow:
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from enum import Enum
@@ -94,8 +95,38 @@ _APP_SEARCH_DEFS: dict[str, dict] = {
     },
     "wechat": {
         "title_patterns": ["*微信*", "*WeChat*"],
-        "process_name": "WeChat.exe",
+        "process_name": "Weixin.exe",
         "launch_executable": None,  # need to find path
+        "launch_args": [],
+    },
+    "weixin": {
+        "title_patterns": ["*微信*", "*WeChat*"],
+        "process_name": "Weixin.exe",
+        "launch_executable": None,
+        "launch_args": [],
+    },
+    "qq": {
+        "title_patterns": ["*QQ*"],
+        "process_name": "QQ.exe",
+        "launch_executable": None,
+        "launch_args": [],
+    },
+    "netease_cloud_music": {
+        "title_patterns": ["*网易云*", "*CloudMusic*", "*Netease*", "*音乐*"],
+        "process_name": "cloudmusic.exe",
+        "launch_executable": None,
+        "launch_args": [],
+    },
+    "cloudmusic": {
+        "title_patterns": ["*网易云*", "*CloudMusic*", "*Netease*", "*音乐*"],
+        "process_name": "cloudmusic.exe",
+        "launch_executable": None,
+        "launch_args": [],
+    },
+    "voicemeeter": {
+        "title_patterns": ["*VoiceMeeter*", "*Voicemeeter*"],
+        "process_name": "voicemeeter8x64.exe",
+        "launch_executable": None,
         "launch_args": [],
     },
     "vscode": {
@@ -113,8 +144,29 @@ _KNOWN_INSTALL_PATHS: dict[str, list[str]] = {
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     ],
     "wechat": [
+        r"C:\Program Files\Tencent\Weixin\Weixin.exe",
         r"C:\Program Files\Tencent\WeChat\WeChat.exe",
         r"C:\Program Files (x86)\Tencent\WeChat\WeChat.exe",
+    ],
+    "weixin": [
+        r"C:\Program Files\Tencent\Weixin\Weixin.exe",
+        r"C:\Program Files\Tencent\WeChat\WeChat.exe",
+        r"C:\Program Files (x86)\Tencent\WeChat\WeChat.exe",
+    ],
+    "qq": [
+        r"C:\Program Files\Tencent\QQNT\QQ.exe",
+        r"C:\Program Files (x86)\Tencent\QQ\Bin\QQ.exe",
+    ],
+    "voicemeeter": [
+        r"C:\Program Files (x86)\VB\Voicemeeter\voicemeeter8x64.exe",
+        r"C:\Program Files (x86)\VB\Voicemeeter\voicemeeter8.exe",
+        r"C:\Program Files (x86)\VB\Voicemeeter\voicemeeterpro.exe",
+        r"C:\Program Files (x86)\VB\Voicemeeter\voicemeeter.exe",
+    ],
+    "vscode": [
+        r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe",
+        r"C:\Program Files\Microsoft VS Code\Code.exe",
+        r"C:\Program Files (x86)\Microsoft VS Code\Code.exe",
     ],
 }
 
@@ -133,8 +185,9 @@ def _find_executable(app_name: str) -> str | None:
 
     # Try known install paths
     for path in _KNOWN_INSTALL_PATHS.get(app_name, []):
-        if Path(path).exists():
-            return path
+        expanded = os.path.expandvars(path)
+        if Path(expanded).exists():
+            return expanded
 
     # Try process_name in PATH
     process_name = search_def.get("process_name")

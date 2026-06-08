@@ -19,7 +19,7 @@ class StartMenuScanner:
 
     STARTMENU_PATHS = [
         r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
-        r"%APPDATA%\Microsoft\Windows\Start Menu\Programs",
+        r"C:\Users\$USER\AppData\Roaming\Microsoft\Windows\Start Menu\Programs",
     ]
 
     def scan(self) -> Generator[dict, None, None]:

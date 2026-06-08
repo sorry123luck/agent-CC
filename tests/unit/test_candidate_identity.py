@@ -99,7 +99,7 @@ class TestCompletelyDifferent:
             region="title_bar",
             role="title_bar",
             rel_bounds=(0.0, 0.0, 0.5, 0.05),
-            text="DeskCanvas",
+            text="OpenClaw",
             visual_type="text",
             is_fixed=True,
         )

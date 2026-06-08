@@ -15,13 +15,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any
 
 from src.common.logger import setup_logger
 from src.storage.db import init_db
 from src.indexer.catalog_service import CatalogService
 from src.canvas.canvas_cache import get_canvas_cache
+from src.windows.capture_diagnostics import canvas_capture_diagnostics as _canvas_capture_diagnostics
+from src.windows.launch_bind_service import LaunchBindService
 from src.integration.api_models import (
     ActRequest,
     ActResponse,
@@ -124,6 +126,20 @@ def _warm_up_runtime_services() -> None:
     threading.Thread(target=_worker, name="openclaw-runtime-warmup", daemon=True).start()
 
 
+def _register_runtime_providers() -> None:
+    """Register all Vision Runtime providers in the global registry."""
+    try:
+        from src.runtime.provider_registry import get_registry
+        from src.runtime.health_monitor import build_default_provider_metadata
+
+        reg = get_registry()
+        for meta in build_default_provider_metadata():
+            reg.register(meta)
+        logger.info("Runtime providers registered: %s", reg.provider_ids())
+    except Exception:
+        logger.warning("Runtime provider registration failed", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     db = init_db("data/openclaw.db")
@@ -131,11 +147,18 @@ async def lifespan(_app: FastAPI):
     from src.integration.processing_state import registry
     registry.recover_incomplete_jobs()
     _warm_up_runtime_services()
+    _register_runtime_providers()
     yield
+    # Shutdown: stop all managed workers
+    try:
+        from src.runtime.worker_manager import get_worker_manager
+        get_worker_manager().stop_all()
+    except Exception:
+        pass  # shutdown best-effort
 
 
 app = FastAPI(
-    title="DeskCanvas API",
+    title="OpenClaw Desktop Agent API",
     version="1.0.0",
     description="桌面智能代理平台的 HTTP API",
     lifespan=lifespan,
@@ -169,6 +192,30 @@ class LaunchResponse(BaseModel):
     app_name: str
     message: str
     hwnd: int | None = None
+
+
+class LaunchBindRequest(BaseModel):
+    app_id: str | None = None
+    exe_path: str | None = None
+    args: list[str] = Field(default_factory=list)
+    timeout_seconds: float = 10.0
+    allow_existing: bool = False
+
+
+class LaunchBindResponse(BaseModel):
+    status: str = "failed"
+    stage: str = "discovery"
+    failure_reason: str | None = None
+    app_id: str = ""
+    exe_path: str | None = None
+    message: str | None = None
+    launch: dict[str, Any] = Field(default_factory=dict)
+    bound_window: dict[str, Any] | None = None
+    candidate_windows: list[dict[str, Any]] = Field(default_factory=list)
+    window_rect: list[int] | None = None
+    dpi_scale: float | None = None
+    capture_diagnostics: dict[str, Any] = Field(default_factory=dict)
+    screenshot_evidence: dict[str, Any] = Field(default_factory=dict)
 
 
 # ===== 辅助函数 =====
@@ -1916,6 +1963,1034 @@ def _update_latest_vlm_response_context(
     )
 
 
+def _icon_memory_diagnostics(canvas, screenshot, process_name: str | None = None) -> None:
+    """Query IconMemoryStore for fixed-control elements and record pre-VLM diagnostics.
+
+    Disabled by default. Enable with OPENCLAW_ICON_MEMORY_DIAGNOSTICS=1.
+    Phase 2: read-only, does NOT modify elements.
+    Writes results to canvas.artifacts["icon_memory_pre_vlm_matches"].
+    """
+    import os
+    if os.environ.get("OPENCLAW_ICON_MEMORY_DIAGNOSTICS") != "1":
+        return
+
+    from src.memory.candidate_identity import FIXED_CONTROL_ROLES
+    from src.memory.icon_memory_store import IconMemoryStore
+    from src.memory.visual_anchor import compute_dhash
+
+    if screenshot is None:
+        canvas.artifacts["icon_memory_pre_vlm_matches"] = {"total_checked": 0, "matched": 0, "details": []}
+        return
+
+    import numpy as np
+    from src.storage.db import Session
+
+    elements = list(getattr(canvas, "elements", []) or [])
+    # Normalize: strip .exe to match indexed app_id
+    app_process = (process_name or "").replace(".exe", "")
+    results = []
+    checked = 0
+
+    def _match_level(dist: int) -> str:
+        if dist == 0:
+            return "exact"
+        if dist <= 2:
+            return "strong"
+        if dist <= 5:
+            return "weak"
+        return "no_match"
+
+    try:
+        store = IconMemoryStore()
+        with Session() as session:
+            for element in elements:
+                role = str(getattr(element.semantic_role, "value", element.semantic_role) or "")
+                if role not in FIXED_CONTROL_ROLES:
+                    continue
+                bounds = getattr(element, "bounds", None)
+                if not bounds or len(bounds) < 4:
+                    continue
+                l, t, r, b = bounds
+                if r <= l or b <= t or (r - l) < 6 or (b - t) < 6:
+                    continue
+
+                try:
+                    crop = screenshot.crop((max(0, l), max(0, t), r, b))
+                    arr = np.array(crop.convert("RGB"))
+                    dhash = compute_dhash(arr)
+                except Exception:
+                    continue
+
+                checked += 1
+                match, dist = store.find_match(session, dhash, app_process, max_distance=5)
+                if match:
+                    results.append({
+                        "element_id": getattr(element, "element_id", ""),
+                        "asset_id": match.asset_id,
+                        "dhash_distance": dist,
+                        "match_level": _match_level(dist),
+                        "semantic_state": match.semantic_state,
+                        "semantic_role": match.semantic_role,
+                        "confidence": match.confidence,
+                    })
+    except Exception:
+        logger.debug("Icon memory diagnostics failed", exc_info=True)
+
+    matched = len(results)
+    confirmed = sum(1 for r in results if r.get("semantic_state") == "confirmed")
+    pending = sum(1 for r in results if r.get("semantic_state") == "pending")
+
+    canvas.artifacts["icon_memory_pre_vlm_matches"] = {
+        "total_checked": checked,
+        "matched": matched,
+        "confirmed": confirmed,
+        "pending": pending,
+        "details": results,
+    }
+
+
+def _icon_memory_backfill(canvas, screenshot, process_name: str | None = None) -> None:
+    """Backfill semantic_role for exact/strong icon memory matches.
+
+    Disabled by default. Enable with OPENCLAW_ICON_MEMORY_BACKFILL=1.
+    Only backfills confirmed matches with match_level=exact or strong.
+    Only backfills elements with generic/empty semantic roles.
+    """
+    import os
+    if os.environ.get("OPENCLAW_ICON_MEMORY_BACKFILL") != "1":
+        return
+
+    from src.perception.page_compiler_models import SemanticRole
+    from src.memory.candidate_identity import FIXED_CONTROL_ROLES
+    from src.memory.icon_memory_store import IconMemoryStore
+    from src.memory.visual_anchor import compute_dhash
+
+    if screenshot is None:
+        return
+
+    # text excluded: message metadata, dates, labels are not actionable controls
+    BACKFILLABLE = {"unknown", "button", "icon_button", "image", "layout"}
+    PROTECTED = {
+        "send_button", "submit_button", "cancel_button", "delete_button",
+        "search_input", "message_input", "text_input", "password_input", "file_input",
+        "tab", "menu_item", "nav_item", "toolbar", "sidebar", "title_bar",
+    }
+
+    import numpy as np
+    from src.storage.db import Session
+
+    app_process = (process_name or "").replace(".exe", "")
+    elements = list(getattr(canvas, "elements", []) or [])
+    backfills = []
+    checked = 0
+    skipped_weak = 0
+    skipped_protected = 0
+    skipped_pending = 0
+    skipped_invalid_role = 0
+    skipped_orphan_app = 0
+    skipped_empty_role = 0
+    skipped_oversized = 0
+    skipped_low_quality = 0
+
+    try:
+        store = IconMemoryStore()
+        with Session() as session:
+            for element in elements:
+                role = str(getattr(element.semantic_role, "value", element.semantic_role) or "")
+                if role in PROTECTED:
+                    skipped_protected += 1
+                    continue
+                if role not in BACKFILLABLE:
+                    continue
+
+                bounds = getattr(element, "bounds", None)
+                if not bounds or len(bounds) < 4:
+                    continue
+                l, t, r, b = bounds
+                if r <= l or b <= t or (r - l) < 6 or (b - t) < 6:
+                    continue
+
+                try:
+                    crop = screenshot.crop((max(0, l), max(0, t), r, b))
+                    arr = np.array(crop.convert("RGB"))
+                    dhash = compute_dhash(arr)
+                except Exception:
+                    continue
+
+                checked += 1
+                match, dist = store.find_match(session, dhash, app_process, max_distance=5)
+                if not match:
+                    continue
+
+                # --- Eligibility gate: reject low-quality matches ---
+                match_meta = match.meta if hasattr(match, "meta") else {}
+
+                # Orphan app check
+                match_app = (match_meta.get("app_process") or match.app_process or "").replace(".exe", "")
+                if not match_app or (app_process and match_app != app_process):
+                    skipped_orphan_app += 1
+                    continue
+
+                # Empty role check
+                if not match.semantic_role or not match.semantic_role.strip():
+                    skipped_empty_role += 1
+                    continue
+
+                # Oversized check: relative_bounds area ratio > 0.1
+                match_bounds = match_meta.get("relative_bounds") or []
+                if match_bounds and len(match_bounds) >= 4:
+                    rel_area = max(0, match_bounds[2] - match_bounds[0]) * max(0, match_bounds[3] - match_bounds[1])
+                    if rel_area > 0.1:
+                        skipped_oversized += 1
+                        continue
+
+                # Low quality state check
+                quality_state = match_meta.get("quality_state", "")
+                if quality_state in ("oversized", "review_needed", "rejected", "low_quality"):
+                    skipped_low_quality += 1
+                    continue
+
+                # Determine match_level
+                if dist == 0:
+                    match_level = "exact"
+                elif dist <= 2:
+                    match_level = "strong"
+                else:
+                    match_level = "weak"
+
+                if match_level == "weak":
+                    skipped_weak += 1
+                    continue
+
+                if match.semantic_state != "confirmed":
+                    skipped_pending += 1
+                    continue
+
+                if match.confidence < 0.7:
+                    continue
+
+                # Check text compatibility
+                elem_text = (getattr(element, "text", "") or "").strip()
+                mem_text = (match.semantic_text or "").strip()
+                if elem_text and not mem_text:
+                    continue
+
+                # Backfill
+                old_role = role
+                try:
+                    element.semantic_role = SemanticRole(match.semantic_role)
+                except (ValueError, KeyError):
+                    skipped_invalid_role += 1
+                    continue
+                element.attributes = dict(element.attributes or {})
+                element.attributes["icon_memory_backfilled"] = True
+                element.attributes["icon_memory_asset_id"] = match.asset_id
+                element.attributes["icon_memory_match_level"] = match_level
+                element.attributes["icon_memory_old_role"] = old_role
+
+                backfills.append({
+                    "element_id": getattr(element, "element_id", ""),
+                    "old_role": old_role,
+                    "new_role": match.semantic_role,
+                    "asset_id": match.asset_id,
+                    "match_level": match_level,
+                    "dhash_distance": dist,
+                    "confidence": match.confidence,
+                    "reason": f"{match_level}_match_confirmed",
+                })
+    except Exception:
+        logger.debug("Icon memory backfill failed", exc_info=True)
+
+    canvas.artifacts["icon_memory_backfills"] = {
+        "total_checked": checked,
+        "backfilled": len(backfills),
+        "skipped_weak": skipped_weak,
+        "skipped_protected": skipped_protected,
+        "skipped_pending": skipped_pending,
+        "skipped_invalid_role": skipped_invalid_role,
+        "skipped_orphan_app": skipped_orphan_app,
+        "skipped_empty_role": skipped_empty_role,
+        "skipped_oversized": skipped_oversized,
+        "skipped_low_quality": skipped_low_quality,
+        "details": backfills,
+    }
+
+
+
+def _icon_memory_roi_selector(canvas) -> None:
+    """Select fixed-control elements as ROI candidates for VLM semantic confirmation.
+
+    Always runs (no env var gate). Read-only, no VLM call, no DB write.
+    Writes results to canvas.artifacts["icon_memory_roi_candidates"].
+    """
+    # text excluded: message metadata, dates, labels are not actionable controls
+    BACKFILLABLE = {"unknown", "button", "icon_button", "image", "layout"}
+    PROTECTED = {
+        "send_button", "submit_button", "cancel_button", "delete_button",
+        "close_button", "payment_button", "destructive_button",
+        "auth_button", "file_input",
+        "search_input", "message_input", "text_input", "password_input",
+        "tab", "menu_item", "nav_item", "toolbar", "sidebar", "title_bar",
+    }
+    CONTAINER_LIKE = {"unknown", "layout"}
+
+    elements = list(getattr(canvas, "elements", []) or [])
+    win_w = int(getattr(canvas, "window_width", 0) or 0)
+    win_h = int(getattr(canvas, "window_height", 0) or 0)
+    if win_w <= 0 or win_h <= 0:
+        for e in elements:
+            b = getattr(e, "bounds", None)
+            if b and len(b) >= 4:
+                win_w = max(win_w, int(b[2]))
+                win_h = max(win_h, int(b[3]))
+    window_area = max(win_w * win_h, 1)
+    max_area_general = window_area * 0.05
+    max_area_container = window_area * 0.02
+
+    candidates = []
+    skipped_protected = 0
+    skipped_text = 0
+    skipped_dynamic = 0
+    skipped_bounds = 0
+    skipped_too_large = 0
+    skipped_container_like = 0
+
+    for element in elements:
+        role = str(getattr(element.semantic_role, "value", element.semantic_role) or "")
+
+        if role in PROTECTED:
+            skipped_protected += 1
+            continue
+        if role not in BACKFILLABLE:
+            continue
+
+        # Text filter
+        text = (getattr(element, "text", "") or "").strip()
+        if len(text) > 20:
+            skipped_text += 1
+            continue
+        lower = text.lower()
+        if any(tok in lower for tok in ("http", "www", ".com", ".cn")):
+            skipped_text += 1
+            continue
+        if text and text.replace("/", "").replace("-", "").replace(":", "").strip().isdigit():
+            skipped_text += 1
+            continue
+
+        # Bounds filter
+        bounds = getattr(element, "bounds", None)
+        if not bounds or len(bounds) < 4:
+            skipped_bounds += 1
+            continue
+        l, t, r, b = bounds
+        area = max(0, r - l) * max(0, b - t)
+        if area < 36:
+            skipped_bounds += 1
+            continue
+
+        # Area limit: general candidates <= 5% of window
+        if area > max_area_general:
+            skipped_too_large += 1
+            continue
+
+        # Container-like filter: unknown/layout with empty text/name + large area
+        if role in CONTAINER_LIKE:
+            if area > max_area_container:
+                skipped_container_like += 1
+                continue
+            elem_text = (getattr(element, "text", "") or "").strip()
+            elem_name = (getattr(element, "name", "") or "").strip()
+            elem_ctrl = (getattr(element, "control_type", "") or "").strip()
+            if not elem_text and not elem_name and not elem_ctrl:
+                skipped_container_like += 1
+                continue
+
+        # Dynamic content area filter
+        region_id = getattr(element, "region_id", None)
+        if region_id and hasattr(canvas, "get_region"):
+            region = canvas.get_region(region_id)
+            if region and getattr(region, "role", "") == "content_area":
+                subtype = str(getattr(region.subtype, "value", getattr(region, "subtype", "")) or "")
+                if subtype in ("chat", "editor", "timeline_media", "canvas_doc_viewer"):
+                    skipped_dynamic += 1
+                    continue
+
+        # --- Priority scoring ---
+        score = 50.0  # baseline
+        reasons = []
+
+        # Role bonus
+        if role in ("button", "icon_button", "image"):
+            score += 20
+            reasons.append("actionable_role")
+        elif role == "unknown":
+            score -= 5
+            reasons.append("unknown_role")
+
+        # Area: small reasonable > large
+        if 100 <= area <= 3000:
+            score += 15
+            reasons.append("small_icon_size")
+        elif area > 20000:
+            score -= 15
+            reasons.append("large_area")
+        elif area > 10000:
+            score -= 8
+            reasons.append("medium_large_area")
+
+        # Provider sources: vision/omniparser adds confidence
+        sources = set(getattr(element, "provider_sources", None) or [])
+        if sources & {"vision", "omniparser", "ocr"}:
+            score += 10
+            reasons.append("multi_source")
+
+        # Text: short/empty is better for icons
+        if not text:
+            score += 5
+            reasons.append("no_text_icon")
+        elif len(text) > 12:
+            score -= 10
+            reasons.append("long_text")
+
+        # Container-like: unknown + empty everything
+        if role in CONTAINER_LIKE:
+            elem_name = (getattr(element, "name", "") or "").strip()
+            elem_ctrl = (getattr(element, "control_type", "") or "").strip()
+            if not text and not elem_name and not elem_ctrl:
+                score -= 20
+                reasons.append("empty_container")
+
+        # Region role bonus/penalty
+        region_role = ""
+        if region_id and hasattr(canvas, "get_region"):
+            region = canvas.get_region(region_id)
+            if region:
+                region_role = str(getattr(region, "role", "") or "")
+
+        if region_role in ("toolbar", "sidebar", "navigation", "composer_area", "control_bar", "action_bar"):
+            score += 12
+            reasons.append(f"good_region:{region_role}")
+        elif region_role in ("content_area", "main_content", "message_stream", "chat", "editor"):
+            score -= 10
+            reasons.append(f"content_region:{region_role}")
+
+        # Near area limit penalty
+        if area > max_area_general * 0.8:
+            score -= 5
+            reasons.append("near_area_limit")
+
+        candidates.append({
+            "element_id": getattr(element, "element_id", ""),
+            "role": role,
+            "text": text,
+            "bounds": list(bounds),
+            "area": area,
+            "region_id": region_id or "",
+            "region_role": region_role,
+            "confidence": getattr(element, "confidence", 0.0),
+            "priority_score": round(score, 1),
+            "priority_reasons": reasons,
+        })
+
+    # Sort by priority_score descending
+    candidates.sort(key=lambda c: c["priority_score"], reverse=True)
+
+    # --- Purpose gate: classify each candidate ---
+    GOOD_ICON_REGIONS = {"toolbar", "sidebar", "navigation", "composer_area",
+                         "control_bar", "action_bar", "menu_bar", "title_bar"}
+    CONTENT_REGIONS = {"content_area", "main_content", "message_stream",
+                       "chat", "editor", "member_list", "conversation_list"}
+    LIST_LIKE_ROLES = {"chat_item", "list_item", "tree_item", "nav_item"}
+
+    skipped_list_item = 0
+    skipped_avatar = 0
+    skipped_text_button = 0
+    skipped_container_region = 0
+
+    for c in candidates:
+        c["memory_candidate_type"] = _classify_memory_candidate(
+            c, GOOD_ICON_REGIONS, CONTENT_REGIONS, LIST_LIKE_ROLES,
+        )
+        c["memory_eligible"] = c["memory_candidate_type"] == "icon_control"
+
+    # --- VLM eligibility: stricter filter for icon_control only ---
+    for c in candidates:
+        if not c.get("memory_eligible"):
+            c["vlm_eligible"] = False
+            c["vlm_skip_reason"] = "not_icon_control"
+            continue
+        eligible, reason = _check_vlm_eligible(c, GOOD_ICON_REGIONS, CONTENT_REGIONS)
+        c["vlm_eligible"] = eligible
+        c["vlm_skip_reason"] = reason
+
+    # Partition: icon_memory_candidates vs rejected
+    icon_memory_candidates = [c for c in candidates if c.get("memory_eligible")]
+    rejected = [c for c in candidates if not c.get("memory_eligible")]
+    for r in rejected:
+        mct = r.get("memory_candidate_type", "unknown_low_priority")
+        if mct == "list_item_or_message":
+            skipped_list_item += 1
+        elif mct == "avatar_or_contact":
+            skipped_avatar += 1
+        elif mct == "text_button":
+            skipped_text_button += 1
+        elif mct == "container_or_region":
+            skipped_container_region += 1
+
+    # Apply limit to icon_memory_candidates only
+    ROI_LIMIT = 30
+    total_before_limit = len(icon_memory_candidates)
+    icon_memory_candidates = icon_memory_candidates[:ROI_LIMIT]
+
+    canvas.artifacts["icon_memory_roi_candidates"] = {
+        "total_elements": len(elements),
+        "total_candidates_before_purpose_gate": len(candidates),
+        "total_candidates_before_limit": total_before_limit,
+        "icon_memory_candidates": len(icon_memory_candidates),
+        "limit": ROI_LIMIT,
+        "skipped_protected": skipped_protected,
+        "skipped_text_blocks": skipped_text,
+        "skipped_dynamic_content": skipped_dynamic,
+        "skipped_invalid_bounds": skipped_bounds,
+        "skipped_too_large": skipped_too_large,
+        "skipped_text_role": skipped_text,
+        "skipped_container_like": skipped_container_like,
+        "skipped_list_item_or_message": skipped_list_item,
+        "skipped_avatar_or_contact": skipped_avatar,
+        "skipped_text_button": skipped_text_button,
+        "skipped_container_or_region": skipped_container_region,
+        "vlm_eligible_count": sum(1 for c in icon_memory_candidates if c.get("vlm_eligible")),
+        "vlm_ineligible_count": sum(1 for c in icon_memory_candidates if not c.get("vlm_eligible")),
+        "ineligible_by_reason": _count_by_key(
+            [c for c in icon_memory_candidates if not c.get("vlm_eligible")],
+            "vlm_skip_reason",
+        ),
+        "icon_memory_candidates": icon_memory_candidates,
+        "rejected_candidates": rejected,
+    }
+
+# --- Phase 4B: ROI VLM Semantic Confirmation ---
+
+_ICON_CONFIRM_SYSTEM_PROMPT = """You are analyzing a single UI control crop from a Windows desktop application.
+Respond with JSON only (no markdown, no explanation)."""
+
+_ICON_CONFIRM_USER_PROMPT = """Is this a real UI control (button, icon, input, menu, tab, toolbar)?
+Or is it one of these non-control items that should be REJECTED:
+- avatar / contact picture / profile picture
+- chat message bubble / message content
+- list item / conversation row / history entry
+- text paragraph / body content
+- container / layout region / page area
+- album cover / media artwork
+- scrollbar / divider / spacer
+
+If it IS a UI control, identify its semantic_role from:
+button, icon_button, send_button, search_input, message_input,
+menu_item, nav_item, tab, toolbar, sidebar, toggle_button, image, unknown
+
+Respond with JSON only:
+{
+"is_ui_control": true/false,
+"reject_reason": "" or avatar|contact|message|list_item|text|content|container|media_item|scrollbar|not_control|uncertain,
+"semantic_role": "button",
+"semantic_text": "",
+"confidence": 0.0-1.0,
+"visual_state": "normal|hover|active|disabled|selected|playing|paused|unknown",
+"control_family": "navigation|action|input|display|media|unknown",
+"reason": "brief explanation"
+}"""
+
+
+def _parse_icon_confirm_response(raw_text: str) -> dict:
+    """Parse VLM response into Phase 4B output contract."""
+    import json
+
+    text = raw_text.strip()
+    # Handle fenced code blocks
+    if text.startswith("```"):
+        raw_lines = text.split("\n")
+        json_lines = []
+        in_block = False
+        for line in raw_lines:
+            if line.strip().startswith("```"):
+                in_block = not in_block
+                continue
+            if in_block:
+                json_lines.append(line)
+        text = "\n".join(json_lines).strip()
+
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return {"is_ui_control": False, "reject_reason": "invalid_json", "error": str(exc)}
+
+    if not isinstance(result, dict):
+        return {"is_ui_control": False, "reject_reason": "invalid_json", "error": "response_not_dict"}
+
+    result.setdefault("is_ui_control", False)
+    result.setdefault("reject_reason", "")
+    result.setdefault("semantic_role", "unknown")
+    result.setdefault("confidence", 0.0)
+    result.setdefault("semantic_text", "")
+    result.setdefault("visual_state", "unknown")
+    result.setdefault("control_family", "unknown")
+    return result
+
+
+def _map_provider_error(error_str: str) -> dict:
+    """Map provider error to Phase 4B reject_reason."""
+    error_lower = error_str.lower()
+    if "timeout" in error_lower or "timed out" in error_lower:
+        return {"is_ui_control": False, "reject_reason": "timeout", "error": error_str}
+    if any(code in error_lower for code in ["401", "403", "429", "500", "502", "503", "http"]):
+        return {"is_ui_control": False, "reject_reason": "http_error", "error": error_str}
+    return {"is_ui_control": False, "reject_reason": "vlm_error", "error": error_str}
+
+
+def _confirm_icon_with_vlm(crop, provider=None) -> dict:
+    """Phase 4B: Confirm a single control crop via VLM.
+
+    Reuses semantic_modeler config and provider abstraction.
+    Returns Phase 4B output contract: is_ui_control, semantic_role, confidence, reject_reason, etc.
+    """
+    from src.vlm.roi_provider_worker import create_configured_roi_provider
+    from src.vlm.provider import VLMSemanticRequest
+
+    if provider is None:
+        provider = create_configured_roi_provider()
+    if provider is None or not provider.is_available():
+        return {"is_ui_control": False, "reject_reason": "vlm_unavailable"}
+
+    request = VLMSemanticRequest(
+        screenshot=crop,
+        system_prompt=_ICON_CONFIRM_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": [{"type": "text", "text": _ICON_CONFIRM_USER_PROMPT}]}],
+        max_tokens=1024,
+        provider_options={"response_contract": "icon_confirm"},
+    )
+
+    try:
+        raw = provider.analyze_page(request)
+        if raw.finish_reason == "error":
+            return _map_provider_error(raw.error or "provider_error")
+        return _parse_icon_confirm_response(raw.raw_text)
+    except Exception as exc:
+        return _map_provider_error(str(exc))
+
+
+# --- Phase 4D: Repeated Match Auto Promotion ---
+
+HIGH_RISK_ROLES = frozenset([
+    "send_button", "submit_button", "cancel_button", "delete_button",
+    "close_button", "payment_button", "destructive_button",
+    "auth_button", "file_input",
+])
+
+PROMOTABLE_STATES = frozenset(["pending"])
+QUALITY_FLAGS_BLOCKING_PROMOTION = frozenset([
+    "oversized", "review_needed", "low_quality", "empty_role", "orphan_app",
+])
+
+
+def _try_auto_promote(existing, dist, crop, app_process, store, session, provider=None) -> bool:
+    """Try to auto-promote a pending match to confirmed.
+
+    Strict conditions:
+    - dHash distance <= 2 (exact or strong match)
+    - semantic_role not high-risk
+    - no quality_flag blocking promotion
+    - VLM confirms same role with confidence >= 0.8
+    - existing match_count >= 1 (this is at least 2nd observation)
+    """
+    import json
+
+    # 1. Strong match required
+    if dist > 2:
+        return False
+
+    # Use existing.meta (parsed from extra_metadata by IconMemoryMatch)
+    meta = getattr(existing, 'meta', None) or {}
+    if not isinstance(meta, dict):
+        meta = json.loads(getattr(existing, 'extra_metadata', None) or '{}')
+
+    # 2. Must be in promotable state
+    if meta.get('semantic_state') not in PROMOTABLE_STATES:
+        return False
+
+    # 3. High-risk roles never auto-promote
+    role = meta.get('semantic_role', '')
+    if role in HIGH_RISK_ROLES:
+        return False
+
+    # 4. Quality flags blocking promotion
+    qf = meta.get('quality_flag', '')
+    if qf in QUALITY_FLAGS_BLOCKING_PROMOTION:
+        return False
+
+    # 5. Must have been seen at least once before (match_count >= 1)
+    match_count = meta.get('match_count', 0)
+    if match_count < 1:
+        return False
+
+    # 6. VLM secondary confirmation
+    try:
+        vlm_result = _confirm_icon_with_vlm(crop, provider=provider)
+        if not vlm_result.get('is_ui_control', False):
+            return False
+        vlm_role = vlm_result.get('semantic_role', 'unknown')
+        if vlm_role != role:
+            return False
+        vlm_conf = float(vlm_result.get('confidence', 0))
+        if vlm_conf < 0.8:
+            return False
+    except Exception:
+        return False
+
+    # 7. All conditions met — promote
+    from datetime import datetime
+    now = datetime.now().isoformat()
+    meta['semantic_state'] = 'confirmed'
+    meta['confirmed_at'] = now
+    meta['match_count'] = match_count + 1
+    meta['last_seen_at'] = now
+    meta['promotion_reason'] = 'repeated_match_auto'
+    meta['promotion_evidence'] = {
+        'dhash_distance': dist,
+        'vlm_role': vlm_role,
+        'vlm_confidence': vlm_conf,
+        'match_count': match_count + 1,
+    }
+
+    from src.storage.schema import VisualAssetRecord
+    row = session.query(VisualAssetRecord).filter_by(asset_id=existing.asset_id).first()
+    if row:
+        row.extra_metadata = json.dumps(meta, ensure_ascii=False)
+        session.flush()
+    return True
+
+
+def _icon_memory_vlm_confirm(canvas, screenshot, process_name=None):
+    """Phase 4B: ROI VLM semantic confirmation."""
+    import os, json
+    if os.environ.get("OPENCLAW_ICON_MEMORY_CONFIRM") != "1":
+        return
+    from src.memory.icon_memory_store import IconMemoryStore
+    from src.memory.visual_anchor import compute_dhash
+    from src.storage.db import Session
+    if screenshot is None: return
+    import numpy as np
+
+    roi = canvas.artifacts.get("icon_memory_roi_candidates", {})
+    eligible = [c for c in roi.get("icon_memory_candidates", []) if c.get("vlm_eligible")]
+    VLM_LIMIT = 3
+    to_process = eligible[:VLM_LIMIT]
+    app_process = (process_name or '').replace('.exe', '')
+
+    # Privacy: default hash_only, only save raw crop if explicitly enabled
+    store_raw = os.environ.get("OPENCLAW_ICON_MEMORY_STORE_RAW_CROP") == "1"
+    privacy = "safe" if store_raw else "hash_only"
+
+    results = []
+    processed = stored_pending = 0
+    rejected_by_vlm = rejected_low_conf = 0
+    skipped_confirmed = skipped_pending = 0
+    invalid_json_count = timed_out_count = 0
+    http_error_count = 0
+    promoted_count = 0
+    global_error_msg = ''
+
+    try:
+        # Get provider info for metadata (create once, reuse)
+        from src.vlm.roi_provider_worker import create_configured_roi_provider
+        from src.common.config_manager import load_config
+        _provider = create_configured_roi_provider()
+        _vlm_provider_name = _provider.name if _provider else "disabled"
+        _vlm_model_id = _provider.model_id if _provider else ""
+        _vlm_endpoint = load_config().semantic_modeler.endpoint or ""
+
+        store = IconMemoryStore()
+        with Session() as session:
+            for cand in to_process:
+                processed += 1
+                bounds = cand.get('bounds')
+                if not bounds or len(bounds) < 4:
+                    rejected_by_vlm += 1; continue
+                try:
+                    l, t, r, b = bounds
+                    crop = screenshot.crop((max(0, l), max(0, t), r, b))
+                except Exception:
+                    rejected_by_vlm += 1; continue
+                arr = np.array(crop.convert('RGB'))
+                dhash = compute_dhash(arr)
+                existing, dist = store.find_match(session, dhash, app_process, max_distance=5)
+                if existing and existing.semantic_state == 'confirmed':
+                    skipped_confirmed += 1
+                    results.append({'element_id': cand.get('element_id'), 'status': 'skipped_existing_confirmed', 'asset_id': getattr(existing, 'asset_id', ''), 'dhash_distance': dist, 'existing_role': getattr(existing, 'semantic_role', ''), 'semantic_state': 'confirmed'})
+                    continue
+                if existing and existing.semantic_state == 'pending':
+                    # Phase 4D: check auto-promotion eligibility
+                    promoted = _try_auto_promote(existing, dist, crop, app_process, store, session, provider=_provider)
+                    if promoted:
+                        promoted_count += 1
+                        results.append({'element_id': cand.get('element_id'), 'status': 'promoted_to_confirmed', 'asset_id': getattr(existing, 'asset_id', ''), 'dhash_distance': dist, 'existing_role': getattr(existing, 'semantic_role', ''), 'semantic_state': 'confirmed'})
+                    else:
+                        skipped_pending += 1
+                        results.append({'element_id': cand.get('element_id'), 'status': 'skipped_existing_pending', 'asset_id': getattr(existing, 'asset_id', ''), 'dhash_distance': dist, 'existing_role': getattr(existing, 'semantic_role', ''), 'semantic_state': 'pending'})
+                    continue
+                vlm_result = _confirm_icon_with_vlm(crop, provider=_provider)
+                if vlm_result.get('reject_reason') == 'invalid_json':
+                    invalid_json_count += 1
+                    results.append({'element_id': cand.get('element_id'), 'status': 'invalid_json', 'error': vlm_result.get('error', '')})
+                    continue
+                if vlm_result.get('reject_reason') == 'timeout':
+                    timed_out_count += 1
+                    results.append({'element_id': cand.get('element_id'), 'status': 'timed_out', 'error': vlm_result.get('error', '')})
+                    continue
+                if vlm_result.get('reject_reason') == 'http_error':
+                    http_error_count += 1
+                    results.append({'element_id': cand.get('element_id'), 'status': 'http_error', 'error': vlm_result.get('error', '')})
+                    continue
+                if not vlm_result.get('is_ui_control', False):
+                    rejected_by_vlm += 1
+                    results.append({'element_id': cand.get('element_id'), 'status': 'rejected_by_vlm', 'reject_reason': vlm_result.get('reject_reason', '')})
+                    continue
+                role = vlm_result.get('semantic_role', 'unknown')
+                VALID = set(['unknown','button','icon_button','send_button','search_input','message_input','menu_item','nav_item','tab','toolbar','sidebar','toggle_button','image'])
+                if role not in VALID:
+                    rejected_by_vlm += 1
+                    results.append({'element_id': cand.get('element_id'), 'status': 'rejected_by_vlm', 'reject_reason': 'invalid_role'})
+                    continue
+                confidence = float(vlm_result.get('confidence', 0))
+                if confidence < 0.65:
+                    rejected_low_conf += 1
+                    results.append({'element_id': cand.get('element_id'), 'status': 'rejected_low_confidence', 'confidence': confidence})
+                    continue
+                semantic_text = vlm_result.get('semantic_text', '') or ''
+                visual_state = vlm_result.get('visual_state', 'unknown')
+                control_family = vlm_result.get('control_family', 'unknown')
+                HIGH_RISK = set(['send_button','submit_button','cancel_button'])
+                asset_id = store.store_crop(
+                    session=session, crop_image=crop, app_process=app_process,
+                    page_class='', semantic_role=role, semantic_text=semantic_text,
+                    precomputed_dhash=dhash, source='vlm_roi', privacy_level=privacy,
+                    state='pending', confidence=confidence,
+                    region_id=cand.get('region_id', ''),
+                    bounds_json=json.dumps(bounds),
+                )
+                from src.storage.schema import VisualAssetRecord
+                row = session.query(VisualAssetRecord).filter_by(asset_id=asset_id).first()
+                if row:
+                    meta = json.loads(row.extra_metadata or '{}')
+                    meta['source_element_id'] = cand.get('element_id', '')
+                    meta['roi_bounds'] = list(bounds)
+                    meta['dhash'] = dhash
+                    meta['vlm_config_source'] = 'semantic_modeler'
+                    meta['vlm_provider'] = _vlm_provider_name
+                    meta['vlm_model'] = _vlm_model_id
+                    meta['vlm_endpoint'] = _vlm_endpoint
+                    meta['vlm_prompt_version'] = 'roi_v2'
+                    meta['visual_state'] = visual_state
+                    meta['control_family'] = control_family
+                    meta['candidate_priority_score'] = cand.get('priority_score', 0)
+                    if role in HIGH_RISK: meta['high_risk'] = True
+                    row.extra_metadata = json.dumps(meta, ensure_ascii=False)
+                    session.flush()
+                stored_pending += 1
+                results.append({'element_id': cand.get('element_id'), 'status': 'stored_pending', 'asset_id': asset_id, 'semantic_role': role, 'confidence': confidence, 'visual_state': visual_state, 'is_ui_control': True, 'privacy_level': privacy})
+    except Exception as exc:
+        global_error_msg = str(exc)[:500]
+
+    artifact = {
+        'processed': processed, 'stored_pending': stored_pending,
+        'promoted_to_confirmed': promoted_count,
+        'rejected_by_vlm': rejected_by_vlm, 'rejected_low_confidence': rejected_low_conf,
+        'invalid_json': invalid_json_count, 'timed_out': timed_out_count,
+        'http_error': http_error_count,
+        'skipped_existing_confirmed': skipped_confirmed, 'skipped_existing_pending': skipped_pending,
+        'vlm_limit': VLM_LIMIT, 'details': results,
+    }
+    if global_error_msg:
+        artifact['global_error_count'] = 1
+        artifact['global_error_message'] = global_error_msg
+    canvas.artifacts['icon_memory_vlm_confirmations'] = artifact
+
+
+
+def _count_by_key(items: list[dict[str, Any]], key: str) -> dict[str, int]:
+    """Count items by a string key."""
+    counts: dict[str, int] = {}
+    for item in items:
+        val = str(item.get(key, ""))
+        counts[val] = counts.get(val, 0) + 1
+    return counts
+
+
+
+def _check_vlm_eligible(
+    candidate: dict[str, Any],
+    good_icon_regions: set[str],
+    content_regions: set[str],
+) -> tuple[bool, str]:
+    """Check if an icon_control candidate is eligible for VLM semantic confirmation.
+
+    Conservative: only reject elements that are CLEARLY not icon targets.
+    Let borderline cases through — VLM (4B) will make the final call.
+
+    Returns (eligible, reason).
+    """
+    role = candidate.get("role", "")
+    text = (candidate.get("text") or "").strip()
+    area = candidate.get("area", 0)
+    region_role = candidate.get("region_role", "")
+    bounds = candidate.get("bounds", [])
+    mct = candidate.get("memory_candidate_type", "")
+
+    # Aspect ratio
+    aspect_ratio = 1.0
+    width = height = 0
+    if bounds and len(bounds) >= 4:
+        width = max(1, bounds[2] - bounds[0])
+        height = max(1, bounds[3] - bounds[1])
+        aspect_ratio = max(width, height) / max(min(width, height), 1)
+
+    # 1. Only icon_control
+    if mct != "icon_control":
+        return False, f"not_icon_control:{mct}"
+
+    # 2. Large area — clearly not a single icon
+    if area > 8000:
+        return False, "too_large_for_icon"
+
+    # 3. Wide horizontal element — list/history row
+    if aspect_ratio > 4.0 and width > 150:
+        return False, "list_history_row"
+
+    # 4. Content area with text — message/history content
+    if region_role in ("message_stream", "chat", "editor") and text:
+        return False, "content_area_with_text"
+
+    # 5. Avatar/contact: ONLY when region explicitly indicates it
+    #    Do NOT reject based on shape alone — toolbar icons are also square
+    avatar_regions = {"member_list", "conversation_list"}
+    if region_role in avatar_regions:
+        if is_square_ish(width, height) and area < 5000:
+            return False, "avatar_or_contact"
+
+    # 6. Image role in sidebar with no text — likely avatar
+    if role == "image" and region_role == "sidebar" and not text:
+        if is_square_ish(width, height) and area < 3000:
+            return False, "avatar_or_contact"
+
+    # 7. Good region: always eligible
+    if region_role in good_icon_regions:
+        return True, "good_region"
+
+    # 8. No region + no text + small: accept (let VLM decide)
+    #    Only reject if it is clearly not a control (very large or very elongated)
+    if not region_role and not text:
+        if area > 5000:
+            return False, "too_large_no_region"
+        if aspect_ratio > 3.0:
+            return False, "too_elongated"
+        return True, "small_icon_accepted"
+
+    # 9. Short text control
+    if text and len(text) <= 8 and area <= 5000:
+        return True, "short_text_control"
+
+    # 10. Default: accept if small enough
+    if area <= 5000:
+        return True, "small_area_accepted"
+
+    return False, "does_not_look_like_icon"
+
+
+def is_square_ish(width: int, height: int) -> bool:
+    """Check if dimensions are roughly square (aspect ratio < 1.5)."""
+    if width <= 0 or height <= 0:
+        return False
+    return max(width, height) / max(min(width, height), 1) < 1.5
+
+def _classify_memory_candidate(
+    candidate: dict[str, Any],
+    good_icon_regions: set[str],
+    content_regions: set[str],
+    list_like_roles: set[str],
+) -> str:
+    """Classify a ROI candidate into a memory candidate type.
+
+    Returns one of:
+    - icon_control: suitable for icon memory (small, fixed-position control)
+    - text_button: button with text, may be action button or list item
+    - list_item_or_message: chat history, conversation list, message bubble
+    - avatar_or_contact: profile picture, contact avatar
+    - container_or_region: large area, layout container
+    - unknown_low_priority: unknown role, no text, not clearly an icon
+    """
+    role = candidate.get("role", "")
+    text = (candidate.get("text") or "").strip()
+    area = candidate.get("area", 0)
+    region_role = candidate.get("region_role", "")
+    reasons = candidate.get("priority_reasons", [])
+    bounds = candidate.get("bounds", [])
+    sources = set(candidate.get("sources", []))
+
+    # Aspect ratio check: icons are roughly square
+    aspect_ratio = 1.0
+    if bounds and len(bounds) >= 4:
+        w = max(1, bounds[2] - bounds[0])
+        h = max(1, bounds[3] - bounds[1])
+        aspect_ratio = max(w, h) / max(min(w, h), 1)
+
+    # --- Classification rules ---
+
+    # 1. List item / message: chat_item, list_item, or in content area with text
+    if role in list_like_roles:
+        return "list_item_or_message"
+    if region_role in ("message_stream", "conversation_list", "member_list"):
+        if text and len(text) > 4:
+            return "list_item_or_message"
+    if role == "text" and region_role in ("message_stream", "chat"):
+        return "list_item_or_message"
+
+    # 2. Avatar / contact: square, small, in member/sidebar area, no text
+    if role == "image" and area < 5000 and aspect_ratio < 1.5 and not text:
+        if region_role in ("member_list", "sidebar", "conversation_list"):
+            return "avatar_or_contact"
+
+    # 3. Container / region: large area, layout/unknown, empty content
+    if role in ("layout",) and area > 10000:
+        return "container_or_region"
+    if role == "unknown" and area > 8000 and not text:
+        return "container_or_region"
+
+    # 4. Text button: button with meaningful text
+    if role in ("button", "icon_button") and text and len(text) > 4:
+        # If in good icon region and text is short, still icon_control
+        if region_role in good_icon_regions and len(text) <= 8:
+            return "icon_control"
+        return "text_button"
+
+    # 5. Icon control: small, square-ish, fixed position
+    if role in ("button", "icon_button", "image"):
+        if area <= 5000 and aspect_ratio < 3.0:
+            return "icon_control"
+        if region_role in good_icon_regions and area <= 15000:
+            return "icon_control"
+        if not text and area <= 8000:
+            return "icon_control"
+
+    # 6. Unknown: classify by context
+    if role == "unknown":
+        if area <= 3000 and aspect_ratio < 2.0:
+            return "icon_control"  # Small square unknown = likely icon
+        if region_role in good_icon_regions and area <= 8000:
+            return "icon_control"
+        return "unknown_low_priority"
+
+    # 7. Default
+    return "unknown_low_priority"
+
 def _do_observe(
     hwnd: int,
     allow_vlm: bool = False,
@@ -1959,6 +3034,13 @@ def _do_observe(
     process_name = zone_page.window_info.process_name if zone_page.window_info else None
     canvas = perception.create_page_snapshot(zone_page, process_name=process_name)
     canvas.artifacts["source_hwnd"] = hwnd
+
+    # Phase 2: icon memory read-only diagnostics
+    # Phase 2: icon memory pre-VLM diagnostics (disabled by default, OPENCLAW_ICON_MEMORY_DIAGNOSTICS=1)
+    _icon_memory_diagnostics(canvas, zone_page.screenshot, process_name)
+    _icon_memory_backfill(canvas, zone_page.screenshot, process_name)
+    _icon_memory_roi_selector(canvas)
+    _icon_memory_vlm_confirm(canvas, zone_page.screenshot, process_name)
     screenshot_hash = None
     if getattr(zone_page, "screenshot", None) is not None:
         from io import BytesIO
@@ -2286,7 +3368,7 @@ def _do_observe(
 @app.get("/")
 async def root():
     return {
-        "name": "DeskCanvas API",
+        "name": "OpenClaw Desktop Agent API",
         "version": "1.0.0",
         "status": "running",
     }
@@ -2304,6 +3386,60 @@ async def vision_provider_health():
     return provider.health_status()
 
 
+@app.get("/api/v1/runtime/health")
+async def runtime_health():
+    """Aggregated health snapshot for all Vision Runtime providers.
+
+    Non-intrusive: does NOT trigger OCR, OmniParser parse, or VLM calls.
+    Only reads process/module state and HTTP probe endpoints.
+
+    Response is split into:
+    - ``metadata``: static provider descriptors (id, type, mode, capabilities, endpoint, model)
+    - ``providers``: dynamic health probe results (ok, latency, error)
+    - ``summary``: aggregate counts
+    """
+    from src.runtime.provider_registry import get_registry
+    from src.runtime.health_monitor import HealthMonitor
+
+    registry = get_registry()
+    monitor = HealthMonitor(registry)
+    snapshot = monitor.check_all()
+
+    # Build metadata map from registry
+    metadata = []
+    for meta in registry.list_all():
+        entry: dict[str, object] = {
+            "provider_id": meta.provider_id,
+            "provider_type": meta.provider_type,
+            "mode": meta.mode,
+            "capabilities": sorted(meta.capabilities),
+            "default_timeout_seconds": meta.default_timeout_seconds,
+        }
+        if meta.endpoint:
+            entry["endpoint"] = meta.endpoint
+        if meta.process_info:
+            entry["process_info"] = meta.process_info
+        if meta.model_dependency:
+            entry["model_dependency"] = meta.model_dependency
+        metadata.append(entry)
+
+    return {
+        "timestamp": snapshot.timestamp,
+        "summary": snapshot.summary,
+        "metadata": metadata,
+        "providers": [
+            {
+                "provider_id": r.provider_id,
+                "ok": r.ok,
+                "latency_ms": r.latency_ms,
+                "error": r.error,
+                "details": r.details,
+            }
+            for r in snapshot.providers
+        ],
+    }
+
+
 # ===== 路由：软件管理 =====
 
 @app.get("/api/v1/apps/search", response_model=SearchResponse)
@@ -2317,6 +3453,21 @@ async def launch_app(request: LaunchRequest):
     service = CatalogService()
     result = service.launch(request.name)
     return LaunchResponse(**result)
+
+
+@app.post("/api/v1/apps/launch-bind", response_model=LaunchBindResponse)
+async def launch_bind_app(request: LaunchBindRequest):
+    """Launch an app/exe and bind the resulting window with capture evidence."""
+    result = await run_in_threadpool(
+        LaunchBindService().launch_and_bind,
+        app_id=request.app_id,
+        exe_path=request.exe_path,
+        args=request.args,
+        timeout_seconds=request.timeout_seconds,
+        allow_existing=request.allow_existing,
+    )
+    return LaunchBindResponse(**result)
+
 
 @app.get("/api/v1/apps", response_model=dict)
 async def list_apps(limit: int = 100):
@@ -2383,6 +3534,17 @@ async def windows_resolve(request: WindowResolveRequest):
 
 # ===== 核心协议：observe =====
 
+async def _run_do_observe_threadpool(hwnd: int, **kwargs):
+    try:
+        return await run_in_threadpool(_do_observe, hwnd, **kwargs)
+    except TypeError as exc:
+        if "capture_mode" not in str(exc) or "capture_mode" not in kwargs:
+            raise
+        fallback_kwargs = dict(kwargs)
+        fallback_kwargs.pop("capture_mode", None)
+        return await run_in_threadpool(_do_observe, hwnd, **fallback_kwargs)
+
+
 @app.post("/api/v1/observe", response_model=ObserveResponse)
 async def observe(request: ObserveRequest):
     """生成交互画布并缓存。后续 query/diff/remember 都通过 canvas_id 访问。"""
@@ -2414,8 +3576,8 @@ async def observe(request: ObserveRequest):
     response_processing_state: str | None = None
     try:
         if request.async_enhance:
-            canvas, model_match_status, vlm_info = await run_in_threadpool(
-                _do_observe, hwnd, allow_vlm=False, force_vlm=False, run_enhancement_phases=False,
+            canvas, model_match_status, vlm_info = await _run_do_observe_threadpool(
+                hwnd, allow_vlm=False, force_vlm=False, run_enhancement_phases=False,
                 fast_perception=True, capture_mode=request.capture_mode,
             )
             from src.integration.processing_state import registry
@@ -2437,8 +3599,8 @@ async def observe(request: ObserveRequest):
                 max_attempts=2,
             )
         else:
-            canvas, model_match_status, vlm_info = await run_in_threadpool(
-                _do_observe, hwnd, allow_vlm=request.allow_vlm, force_vlm=request.force_vlm,
+            canvas, model_match_status, vlm_info = await _run_do_observe_threadpool(
+                hwnd, allow_vlm=request.allow_vlm, force_vlm=request.force_vlm,
                 capture_mode=request.capture_mode,
             )
             from src.integration.processing_state import registry
@@ -2459,6 +3621,10 @@ async def observe(request: ObserveRequest):
     perception_quality = canvas.artifacts.get("perception_quality") if canvas.artifacts else {}
     visual_pattern = canvas.artifacts.get("visual_pattern") if canvas.artifacts else {}
     roi_selection_plan = canvas.artifacts.get("roi_selection_plan") if canvas.artifacts else {}
+    capture_diagnostics = _canvas_capture_diagnostics(
+        canvas,
+        get_canvas_cache().get_screenshot(canvas.canvas_id),
+    )
 
     return ObserveResponse(
         canvas_id=canvas.canvas_id,
@@ -2488,6 +3654,8 @@ async def observe(request: ObserveRequest):
         perception_quality=perception_quality if isinstance(perception_quality, dict) else {},
         visual_pattern=visual_pattern if isinstance(visual_pattern, dict) else {},
         roi_selection_plan=roi_selection_plan if isinstance(roi_selection_plan, dict) else {},
+        capture_diagnostics=capture_diagnostics,
+
     )
 
 
@@ -3172,6 +4340,10 @@ async def get_canvas_detail(canvas_id: str):
         processing_error=processing.last_error,
         processing_updated_at=processing.updated_at,
         fusion_diagnostics=fusion_diag if isinstance(fusion_diag, dict) else {},
+        icon_memory_pre_vlm_matches=canvas.artifacts.get("icon_memory_pre_vlm_matches", {}) if isinstance(getattr(canvas, "artifacts", None), dict) else {},
+        icon_memory_backfills=canvas.artifacts.get("icon_memory_backfills", {}) if isinstance(getattr(canvas, "artifacts", None), dict) else {},
+        icon_memory_roi_candidates=canvas.artifacts.get("icon_memory_roi_candidates", {}) if isinstance(getattr(canvas, "artifacts", None), dict) else {},
+        icon_memory_roi_rejected=canvas.artifacts.get("icon_memory_roi_candidates", {}).get("rejected_candidates", []) if isinstance(getattr(canvas, "artifacts", None), dict) else [],
     )
 
 
@@ -3924,7 +5096,7 @@ async def list_semantic_modeler_models(request: SemanticModelerModelListRequest)
         headers["anthropic-version"] = "2023-06-01"
     if provider == "openrouter":
         headers["HTTP-Referer"] = "http://127.0.0.1/openclaw"
-        headers["X-Title"] = "DeskCanvas"
+        headers["X-Title"] = "OpenClaw Desktop Agent"
 
     try:
         session = create_vlm_session(proxy_url=config.proxy_url, proxy_port=config.proxy_port)
@@ -5819,6 +6991,10 @@ async def get_state_template_detail(state_template_id: str):
                 regions=regions,
                 geometric_regions=geo_regions,
                 fusion_diagnostics=fusion_diag if isinstance(fusion_diag, dict) else {},
+        icon_memory_pre_vlm_matches=canvas.artifacts.get("icon_memory_pre_vlm_matches", {}) if isinstance(getattr(canvas, "artifacts", None), dict) else {},
+        icon_memory_backfills=canvas.artifacts.get("icon_memory_backfills", {}) if isinstance(getattr(canvas, "artifacts", None), dict) else {},
+        icon_memory_roi_candidates=canvas.artifacts.get("icon_memory_roi_candidates", {}) if isinstance(getattr(canvas, "artifacts", None), dict) else {},
+        icon_memory_roi_rejected=canvas.artifacts.get("icon_memory_roi_candidates", {}).get("rejected_candidates", []) if isinstance(getattr(canvas, "artifacts", None), dict) else [],
                 window_width=win_w,
                 window_height=win_h,
                 captured_at=canvas.captured_at.isoformat() if canvas.captured_at else "",
@@ -5836,6 +7012,78 @@ async def get_state_template_detail(state_template_id: str):
             )
 
     raise HTTPException(status_code=404, detail=f"Canvas snapshots for state template {state_template_id} are expired")
+
+
+# --- Icon Memory Management API (Phase 4C) ---
+
+
+@app.get("/api/v1/icon-memory")
+def list_icon_memory(
+    app_process: str | None = None,
+    state: str | None = None,
+    role: str | None = None,
+    source: str | None = None,
+    limit: int = 100,
+):
+    """List icon memory assets. Returns metadata only, no crop content."""
+    from src.memory.icon_memory_store import IconMemoryStore
+    from src.storage.db import Session
+    store = IconMemoryStore()
+    with Session() as session:
+        items = store.list_assets(session, app_process=app_process, state=state, role=role, source=source, limit=limit)
+    return {"items": items, "count": len(items)}
+
+
+@app.get("/api/v1/icon-memory/{asset_id}")
+def get_icon_memory(asset_id: str):
+    """Get single icon memory asset metadata."""
+    from src.memory.icon_memory_store import IconMemoryStore
+    from src.storage.db import Session
+    store = IconMemoryStore()
+    with Session() as session:
+        match = store.get_asset(session, asset_id)
+    if not match:
+        raise HTTPException(status_code=404, detail=f"Asset {asset_id} not found")
+    return {"asset_id": match.asset_id, **match.meta}
+
+
+@app.post("/api/v1/icon-memory/{asset_id}/confirm")
+def confirm_icon_memory(asset_id: str):
+    """Transition pending/conflict → confirmed."""
+    from src.memory.icon_memory_store import IconMemoryStore
+    from src.storage.db import Session
+    store = IconMemoryStore()
+    with Session() as session:
+        ok = store.confirm(session, asset_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"Cannot confirm {asset_id} (not found or rejected)")
+    return {"asset_id": asset_id, "status": "confirmed"}
+
+
+@app.post("/api/v1/icon-memory/{asset_id}/reject")
+def reject_icon_memory(asset_id: str):
+    """Transition any → rejected."""
+    from src.memory.icon_memory_store import IconMemoryStore
+    from src.storage.db import Session
+    store = IconMemoryStore()
+    with Session() as session:
+        ok = store.reject(session, asset_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Asset {asset_id} not found")
+    return {"asset_id": asset_id, "status": "rejected"}
+
+
+@app.post("/api/v1/icon-memory/{asset_id}/mark-low-quality")
+def mark_low_quality(asset_id: str, reason: str = "low_quality"):
+    """Mark asset as low quality — excluded from backfill/promotion."""
+    from src.memory.icon_memory_store import IconMemoryStore
+    from src.storage.db import Session
+    store = IconMemoryStore()
+    with Session() as session:
+        ok = store.mark_low_quality(session, asset_id, reason)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Asset {asset_id} not found")
+    return {"asset_id": asset_id, "quality_flag": reason}
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-﻿"""Tests for multi-page transition readiness reporting."""
+"""Tests for multi-page transition readiness reporting."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def test_search_probe_roundtrip_becomes_observed_transition_memory():
                     "sample": "qq",
                     "process_name": "qq.exe",
                     "status": "captured",
-                    "query": "sample_contact",
+                    "query": "jz",
                     "before_canvas_id": "snap_before",
                     "after_canvas_id": "snap_search",
                     "selected_canvas_id": "snap_selected",
@@ -142,4 +142,3 @@ def test_analyze_transition_readiness_dirs_writes_outputs(tmp_path):
     markdown = (output_dir / "transition_readiness_report.md").read_text(encoding="utf-8")
     assert "Transition Readiness Report" in markdown
     assert "weixin.exe" in markdown
-

@@ -1,4 +1,4 @@
-﻿"""Tests for controlled search action probe planning/reporting."""
+"""Tests for controlled search action probe planning/reporting."""
 
 from __future__ import annotations
 
@@ -33,9 +33,9 @@ def test_build_probe_targets_attaches_default_queries_and_skips_blocked_rows():
     targets = module.build_probe_targets(plan, queries={})
 
     assert [(item["process_name"], item["query"]) for item in targets] == [
-        ("qq.exe", "sample_contact"),
-        ("weixin.exe", "示例联系人"),
-        ("feishu.exe", "示例联系人"),
+        ("qq.exe", "jz"),
+        ("weixin.exe", "念"),
+        ("feishu.exe", "大笨蛋"),
     ]
     assert targets[0]["probe_strategy"] == "click_search"
     assert targets[2]["probe_strategy"] == "global_search_hotkey"
@@ -355,12 +355,12 @@ def test_write_probe_report_outputs_json_and_markdown(tmp_path):
             {
                 "sample": "qq",
                 "process_name": "qq.exe",
-                "query": "sample_contact",
+                "query": "jz",
                 "status": "captured",
                 "after_canvas_id": "snap_after",
                 "after_screenshot": str(tmp_path / "qq_after.png"),
                 "result_candidate_count": 2,
-                "selected_result": {"click": [185, 122], "text": "sample_contact"},
+                "selected_result": {"click": [185, 122], "text": "jz"},
                 "selected_canvas_id": "snap_selected",
                 "stage_states": {
                     "before": {"mode": "chat_workspace"},
@@ -381,7 +381,7 @@ def test_write_probe_report_outputs_json_and_markdown(tmp_path):
     assert "Search Probe Report" in markdown
     assert "result_count" in markdown
     assert "state_path" in markdown
-    assert "| qq | qq.exe | sample_contact | captured | snap_after | snap_selected | 2 | [185, 122] | chat_workspace -> chat_search_results -> chat_workspace |" in markdown
+    assert "| qq | qq.exe | jz | captured | snap_after | snap_selected | 2 | [185, 122] | chat_workspace -> chat_search_results -> chat_workspace |" in markdown
     assert "selected_result" in saved["rows"][0]
 
 
@@ -408,13 +408,13 @@ def test_extract_result_options_prefers_qq_first_matching_contact_over_global_se
         "roi_selection_plan": {"mode": "chat_search_results"},
         "elements": [
             {"element_id": "tab", "control_type": "TextControl", "bounds": [80, 72, 116, 87], "text": "联系人"},
-            {"element_id": "first", "control_type": "ListItemControl", "bounds": [60, 94, 310, 151], "text": "sample_contact(心有余) 来自: 我的好友"},
-            {"element_id": "second", "control_type": "ListItemControl", "bounds": [60, 151, 310, 206], "text": "sample_contact(……) 来自: 我的好友"},
-            {"element_id": "global", "control_type": "ListItemControl", "bounds": [60, 324, 310, 376], "text": "进入全网搜索sample_contact 查找用户、群聊等"},
+            {"element_id": "first", "control_type": "ListItemControl", "bounds": [60, 94, 310, 151], "text": "jz(心有余) 来自: 我的好友"},
+            {"element_id": "second", "control_type": "ListItemControl", "bounds": [60, 151, 310, 206], "text": "jz(……) 来自: 我的好友"},
+            {"element_id": "global", "control_type": "ListItemControl", "bounds": [60, 324, 310, 376], "text": "进入全网搜索jz 查找用户、群聊等"},
         ],
     }
 
-    options = module.extract_result_options(detail, process_name="qq.exe", query="sample_contact")
+    options = module.extract_result_options(detail, process_name="qq.exe", query="jz")
 
     assert len(options) == 2
     assert options[0]["element_id"] == "first"
@@ -427,13 +427,13 @@ def test_extract_result_options_keeps_qq_compact_text_match_rows():
     detail = {
         "roi_selection_plan": {"mode": "chat_search_results"},
         "elements": [
-            {"element_id": "search_query", "control_type": "TextControl", "bounds": [82, 34, 98, 50], "text": "Q sample_contact"},
-            {"element_id": "first_text", "control_type": "TextControl", "bounds": [125, 84, 136, 102], "text": "sample_contact"},
-            {"element_id": "global", "control_type": "ListItemControl", "bounds": [60, 324, 310, 376], "text": "进入全网搜索sample_contact 查找用户、群聊等"},
+            {"element_id": "search_query", "control_type": "TextControl", "bounds": [82, 34, 98, 50], "text": "Q jz"},
+            {"element_id": "first_text", "control_type": "TextControl", "bounds": [125, 84, 136, 102], "text": "jz"},
+            {"element_id": "global", "control_type": "ListItemControl", "bounds": [60, 324, 310, 376], "text": "进入全网搜索jz 查找用户、群聊等"},
         ],
     }
 
-    options = module.extract_result_options(detail, process_name="qq.exe", query="sample_contact")
+    options = module.extract_result_options(detail, process_name="qq.exe", query="jz")
 
     assert len(options) == 1
     assert options[0]["element_id"] == "first_text"
@@ -451,7 +451,7 @@ def test_extract_result_options_uses_wechat_visual_rows_when_text_is_missing():
         ],
     }
 
-    options = module.extract_result_options(detail, process_name="weixin.exe", query="示例联系人")
+    options = module.extract_result_options(detail, process_name="weixin.exe", query="念")
 
     assert len(options) == 2
     assert options[0]["element_id"] == "first_row"
@@ -469,7 +469,7 @@ def test_extract_result_options_does_not_use_wechat_sidebar_rows_when_mode_stays
         ],
     }
 
-    options = module.extract_result_options(detail, process_name="weixin.exe", query="示例联系人")
+    options = module.extract_result_options(detail, process_name="weixin.exe", query="念")
 
     assert options == []
 
@@ -504,7 +504,7 @@ def test_extract_result_options_prefers_wechat_contact_row_fragments_over_web_re
         ],
     }
 
-    options = module.extract_result_options(detail, process_name="weixin.exe", query="示例联系人")
+    options = module.extract_result_options(detail, process_name="weixin.exe", query="念")
 
     assert len(options) >= 1
     assert options[0]["element_id"] == "contact_avatar"
@@ -526,7 +526,7 @@ def test_extract_result_options_uses_wechat_screen_region_popup_fragments():
         ],
     }
 
-    options = module.extract_result_options(detail, process_name="weixin.exe", query="示例联系人")
+    options = module.extract_result_options(detail, process_name="weixin.exe", query="念")
 
     assert len(options) == 1
     assert options[0]["element_id"] == "avatar"
@@ -548,7 +548,7 @@ def test_extract_result_options_rejects_wechat_web_search_only_rows():
         ],
     }
 
-    options = module.extract_result_options(detail, process_name="weixin.exe", query="示例联系人")
+    options = module.extract_result_options(detail, process_name="weixin.exe", query="念")
 
     assert options == []
 
@@ -559,14 +559,13 @@ def test_extract_result_options_prefers_feishu_overlay_result_text():
         "roi_selection_plan": {"mode": "collaboration_search_overlay"},
         "elements": [
             {"element_id": "query", "control_type": "TextControl", "bounds": [163, 81, 353, 113], "text": ""},
-            {"element_id": "first", "control_type": "TextControl", "bounds": [186, 200, 228, 217], "text": "示例联系人"},
-            {"element_id": "second", "control_type": "TextControl", "bounds": [186, 263, 228, 308], "text": "示例联系人"},
+            {"element_id": "first", "control_type": "TextControl", "bounds": [186, 200, 228, 217], "text": "大笨蛋"},
+            {"element_id": "second", "control_type": "TextControl", "bounds": [186, 263, 228, 308], "text": "大笨蛋"},
         ],
     }
 
-    options = module.extract_result_options(detail, process_name="feishu.exe", query="示例联系人")
+    options = module.extract_result_options(detail, process_name="feishu.exe", query="大笨蛋")
 
     assert len(options) == 2
     assert options[0]["element_id"] == "first"
     assert options[0]["click"] == [207, 208]
-

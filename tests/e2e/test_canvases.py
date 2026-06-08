@@ -1,4 +1,4 @@
-﻿"""E2E tests for canvas-related endpoints.
+"""E2E tests for canvas-related endpoints.
 
 Tests:
 - GET /api/v1/canvases (list cached canvases)
@@ -305,7 +305,7 @@ class TestReadCanvasRegion:
                 region_id="status",
                 semantic_role=SemanticRole.TEXT,
                 bounds=(20, 20, 220, 50),
-                text="网络检测 203.0.113.44",
+                text="网络检测 203.175.14.44",
                 provider_sources=["uia"],
             ),
             Candidate(
@@ -334,7 +334,7 @@ class TestReadCanvasRegion:
         assert data["method"] == "region_text_harvest"
         assert data["status"] == "pass"
         texts = [block["text"] for block in data["text_blocks"]]
-        assert "网络检测 203.0.113.44" in texts
+        assert "网络检测 203.175.14.44" in texts
         assert "内网 IP" in texts
         assert "outside text" not in texts
         assert "不应读取" not in texts
@@ -1107,4 +1107,3 @@ class TestGetCanvasScreenshot:
         # The cache should not touch the filesystem
         cache.clear()
         assert cache.get_screenshot("test_mem_only") is None
-

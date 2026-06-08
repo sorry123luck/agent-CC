@@ -46,7 +46,7 @@ def test_chat_readback_result_matches_text_when_ocr_drops_spaces():
                 message_id="m1",
                 sender="me",
                 message_type="text",
-                text="DeskCanvasdefault readback WX 1906",
+                text="OpenClawdefault readback WX 1906",
                 bounds=(100, 200, 360, 240),
                 confidence=0.91,
                 source="ocr_crop",
@@ -54,13 +54,13 @@ def test_chat_readback_result_matches_text_when_ocr_drops_spaces():
         ],
     )
 
-    assert result.has_text("DeskCanvas default readback WX 1906")
+    assert result.has_text("OpenClaw default readback WX 1906")
 
 
 class FakeOCR:
     def recognize_image(self, image):
         return [
-            {"text": "DeskCanvas send probe", "bounds": (610, 120, 820, 160), "confidence": 0.93},
+            {"text": "OpenClaw send probe", "bounds": (610, 120, 820, 160), "confidence": 0.93},
             {"text": "对方回复", "bounds": (80, 220, 260, 260), "confidence": 0.88},
         ]
 
@@ -83,7 +83,7 @@ def test_readback_worker_emits_self_and_peer_text_events(tmp_path):
         crop_origin=(300, 80),
     )
 
-    assert result.has_text("DeskCanvas send probe")
+    assert result.has_text("OpenClaw send probe")
     assert any(event.sender == "peer" and event.text == "对方回复" for event in result.events)
 
 
@@ -115,7 +115,7 @@ def test_readback_worker_marks_expected_self_text_as_me_even_when_left_aligned(t
         def recognize_image(self, image):
             return [
                 {
-                    "text": "DeskCanvas readback probe Feishu 1735",
+                    "text": "OpenClaw readback probe Feishu 1735",
                     "bounds": (64, 170, 310, 188),
                     "confidence": 0.98,
                 }
@@ -129,7 +129,7 @@ def test_readback_worker_marks_expected_self_text_as_me_even_when_left_aligned(t
         window_id="hwnd-1",
         stream_bounds=(0, 0, 700, 220),
         crop_origin=(0, 0),
-        expected_self_texts=["DeskCanvas readback probe Feishu 1735"],
+        expected_self_texts=["OpenClaw readback probe Feishu 1735"],
     )
 
     assert result.events[0].sender == "me"
@@ -143,7 +143,7 @@ def test_readback_worker_expected_self_text_ignores_ocr_space_loss(tmp_path):
         def recognize_image(self, image):
             return [
                 {
-                    "text": "DeskCanvasdefault readback WX 1906",
+                    "text": "OpenClawdefault readback WX 1906",
                     "bounds": (64, 170, 310, 188),
                     "confidence": 0.98,
                 }
@@ -157,7 +157,7 @@ def test_readback_worker_expected_self_text_ignores_ocr_space_loss(tmp_path):
         window_id="hwnd-1",
         stream_bounds=(0, 0, 700, 220),
         crop_origin=(0, 0),
-        expected_self_texts=["DeskCanvas default readback WX 1906"],
+        expected_self_texts=["OpenClaw default readback WX 1906"],
     )
 
     assert result.events[0].sender == "me"
@@ -172,7 +172,7 @@ def test_readback_worker_records_bubble_color_style_for_ocr_text():
         def recognize_image(self, image):
             return [
                 {
-                    "text": "DeskCanvas probe",
+                    "text": "OpenClaw probe",
                     "bounds": (70, 42, 168, 58),
                     "confidence": 0.97,
                 }

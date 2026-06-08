@@ -7,7 +7,7 @@ import pytest
 from src.perception.page_compiler import InteractionCanvasEngine
 from src.perception.page_compiler_candidates import build_boundary_candidates
 from src.perception.geometric_partitioner import GeometricRegion
-from src.perception.page_compiler_models import CoordinateSpace, LocatorKind, SurfaceType
+from src.perception.page_compiler_models import Candidate, CoordinateSpace, LocatorKind, Region, SemanticRole, SurfaceType
 
 
 class TestInteractionCanvasEngine:
@@ -54,6 +54,20 @@ class TestInteractionCanvasEngine:
             uia_control_types=["Button", "Edit", "Tree"],
         )
         assert result.surface.surface_type == SurfaceType.NATIVE_UIA
+
+    def test_synthetic_control_type_does_not_turn_long_submit_text_into_button(self):
+        """长说明文本包含“提交”时不应被误分成 submit/button 控件。"""
+        raw_elements = [{"bounding_rect": (0, 0, 1600, 900)}]
+
+        short_action = self.compiler._infer_synthetic_control_type("提交", (1200, 700, 1260, 730), raw_elements)
+        long_text = self.compiler._infer_synthetic_control_type(
+            '执行： git add CLAUDE.md git commit -m "docs: align entry documents with current handoff" 提交后输出状态',
+            (100, 80, 900, 120),
+            raw_elements,
+        )
+
+        assert short_action == "ButtonControl"
+        assert long_text != "ButtonControl"
 
     def test_compile_page_class_wechat(self):
         """WeChat page_class 包含 wechat app"""
@@ -319,6 +333,7 @@ class TestInteractionCanvasEngine:
         )
         send_buttons = [e for e in result.elements if e.semantic_role.value == "send_button"]
         assert len(send_buttons) == 1
+        assert "send" in send_buttons[0].risk_tags
 
     def test_compile_canvas_id_unique(self):
         """每次 compile 生成唯一 canvas_id"""
@@ -1499,6 +1514,27 @@ class TestInteractionCanvasEngine:
         assert message_input.bounds[2] <= send_button.bounds[0]
         assert message_input.provider_sources == ["boundary_candidate"]
 
+    def test_does_not_synthesize_invalid_message_input_bounds(self):
+        region = Region(
+            region_id="region_content_composer_0",
+            role="composer_area",
+            bounds=(0, 660, 12, 880),
+        )
+        send_button = Candidate(
+            element_id="send_btn",
+            semantic_role=SemanticRole.BUTTON,
+            bounds=(0, 700, 8, 730),
+        )
+
+        candidate = self.compiler._synthesize_message_input_candidate(
+            region,
+            region_items=[],
+            all_items=[send_button],
+            existing_ids=set(),
+        )
+
+        assert candidate is None
+
     def test_compile_populates_boundary_candidates_artifact(self):
         raw_elements = [
             {
@@ -1712,3 +1748,354 @@ class TestInteractionCanvasEngine:
         assert header_candidate["region_hint"] == "top_header_bar"
         assert header_candidate["control_hint"] == "header_like"
         assert header_candidate["candidate_kind"] == "header_candidate"
+
+    def test_compile_qq_sparse_root_gets_local_layout_candidates(self):
+        raw_elements = [
+            {
+                "element_id": "qq_root",
+                "control_type": "PaneControl",
+                "name": "QQ",
+                "text": "QQ",
+                "bounding_rect": (0, 0, 960, 640),
+            }
+        ]
+
+        result = self.compiler.compile(
+            process_name="qq.exe",
+            window_title="QQ",
+            raw_elements=raw_elements,
+            allow_legacy_zone_reconstruction=False,
+        )
+
+        roles = {element.semantic_role.value: element for element in result.elements}
+        assert "search_input" in roles
+        assert "chat_item" in roles
+        assert "message_input" in roles
+        assert "send_button" in roles
+        assert roles["send_button"].text == "发送"
+        assert "send" in roles["send_button"].risk_tags
+        assert "app_layout" in roles["search_input"].provider_sources
+
+    def test_compile_qq_sparse_root_prefers_ocr_candidates_before_app_layout(self):
+        raw_elements = [
+            {
+                "element_id": "qq_root",
+                "control_type": "PaneControl",
+                "name": "QQ",
+                "text": "QQ",
+                "bounding_rect": (0, 0, 960, 640),
+            }
+        ]
+        ocr_blocks = [
+            {"text": "搜索", "bbox": (76, 28, 259, 57), "confidence": 0.98},
+            {"text": "会话列表", "bbox": (67, 76, 307, 140), "confidence": 0.96},
+            {"text": "发送", "bbox": (787, 595, 892, 627), "confidence": 0.98},
+        ]
+
+        result = self.compiler.compile(
+            process_name="qq.exe",
+            window_title="QQ",
+            raw_elements=raw_elements,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+
+        by_role = {}
+        for element in result.elements:
+            by_role.setdefault(element.semantic_role.value, []).append(element)
+
+        # R1: OCR synthetic elements use TextControl, but chat tokens still map to CHAT_ITEM.
+        assert "ocr" in by_role["search_input"][0].provider_sources
+        assert "app_layout" not in by_role["search_input"][0].provider_sources
+        assert "ocr" in by_role["chat_item"][0].provider_sources
+        assert "ocr" in by_role["send_button"][0].provider_sources
+        assert "app_layout" not in by_role["send_button"][0].provider_sources
+
+    def test_compile_voicemeeter_sparse_root_gets_local_layout_candidates(self):
+        raw_elements = [
+            {
+                "element_id": "vm_root",
+                "control_type": "PaneControl",
+                "name": "VoiceMeeter",
+                "text": "VoiceMeeter",
+                "bounding_rect": (0, 0, 1645, 770),
+            }
+        ]
+
+        result = self.compiler.compile(
+            process_name="voicemeeter8x64.exe",
+            window_title="VoiceMeeter",
+            raw_elements=raw_elements,
+            allow_legacy_zone_reconstruction=False,
+        )
+
+        by_text = {element.text: element for element in result.elements if element.text}
+        assert "A1" in by_text
+        assert "Menu" in by_text
+        assert "Hardware" in by_text
+        assert "app_layout" in by_text["A1"].provider_sources
+
+    def test_compile_voicemeeter_sparse_root_prefers_ocr_candidates_before_app_layout(self):
+        raw_elements = [
+            {
+                "element_id": "vm_root",
+                "control_type": "PaneControl",
+                "name": "VoiceMeeter",
+                "text": "VoiceMeeter",
+                "bounding_rect": (0, 0, 1645, 770),
+            }
+        ]
+        ocr_blocks = [
+            {"text": "Hardware", "bbox": (4, 38, 190, 83), "confidence": 0.91},
+            {"text": "A1", "bbox": (1152, 8, 1185, 54), "confidence": 0.94},
+            {"text": "Menu", "bbox": (1463, 15, 1545, 46), "confidence": 0.92},
+        ]
+
+        result = self.compiler.compile(
+            process_name="voicemeeter8x64.exe",
+            window_title="VoiceMeeter",
+            raw_elements=raw_elements,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+
+        by_text = {element.text: element for element in result.elements if element.text}
+        assert "ocr" in by_text["Hardware"].provider_sources
+        assert "app_layout" not in by_text["Hardware"].provider_sources
+        assert by_text["A1"].semantic_role == SemanticRole.BUTTON
+        assert "ocr" in by_text["A1"].provider_sources
+        assert "app_layout" not in by_text["A1"].provider_sources
+        assert by_text["Menu"].semantic_role in {SemanticRole.BUTTON, SemanticRole.MENU_ITEM}
+        assert "ocr" in by_text["Menu"].provider_sources
+        assert "app_layout" not in by_text["Menu"].provider_sources
+
+    def test_ocr_actionable_menu_generates_button(self):
+        """OCR 'Menu' text should generate a ButtonControl candidate."""
+        raw_elements = [
+            {"element_id": "root", "control_type": "PaneControl", "name": "App", "bounding_rect": (0, 0, 800, 600)},
+        ]
+        ocr_blocks = [
+            {"text": "Menu", "bbox": (700, 10, 760, 35), "confidence": 0.92},
+        ]
+        result = self.compiler.compile(
+            process_name="test.exe",
+            window_title="Test",
+            raw_elements=raw_elements,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        menu_candidates = [e for e in result.elements if e.text and "menu" in e.text.lower()]
+        assert len(menu_candidates) >= 1
+        assert menu_candidates[0].control_type in ("ButtonControl", "ButtonControl")
+
+    def test_ocr_actionable_url_not_converted_to_button(self):
+        """OCR URL text must NOT become a button candidate."""
+        raw_elements = [
+            {"element_id": "root", "control_type": "PaneControl", "name": "App", "bounding_rect": (0, 0, 800, 600)},
+        ]
+        ocr_blocks = [
+            {"text": "https://chatgpt.com/g/g-p-6a1ea86", "bbox": (100, 10, 400, 30), "confidence": 0.95},
+            {"text": "www.google.com", "bbox": (100, 40, 300, 60), "confidence": 0.95},
+        ]
+        result = self.compiler.compile(
+            process_name="test.exe",
+            window_title="Test",
+            raw_elements=raw_elements,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        button_candidates = [e for e in result.elements if e.control_type == "ButtonControl" and e.element_id.startswith("ocr_action_")]
+        assert len(button_candidates) == 0
+
+    def test_ocr_actionable_date_not_converted_to_button(self):
+        """OCR date text like '05/12' must NOT become a button candidate."""
+        raw_elements = [
+            {"element_id": "root", "control_type": "PaneControl", "name": "App", "bounding_rect": (0, 0, 800, 600)},
+        ]
+        ocr_blocks = [
+            {"text": "05/12", "bbox": (10, 10, 60, 30), "confidence": 0.95},
+            {"text": "2024-01-15", "bbox": (10, 40, 100, 60), "confidence": 0.95},
+        ]
+        result = self.compiler.compile(
+            process_name="test.exe",
+            window_title="Test",
+            raw_elements=raw_elements,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        button_candidates = [e for e in result.elements if e.control_type == "ButtonControl" and e.element_id.startswith("ocr_action_")]
+        assert len(button_candidates) == 0
+
+    def test_ocr_actionable_long_text_not_converted(self):
+        """Long OCR text (>10 chars) must NOT become actionable."""
+        raw_elements = [
+            {"element_id": "root", "control_type": "PaneControl", "name": "App", "bounding_rect": (0, 0, 800, 600)},
+        ]
+        ocr_blocks = [
+            {"text": "这是一个很长的文本不应该变成按钮", "bbox": (10, 10, 300, 30), "confidence": 0.95},
+        ]
+        result = self.compiler.compile(
+            process_name="test.exe",
+            window_title="Test",
+            raw_elements=raw_elements,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        button_candidates = [e for e in result.elements if e.control_type == "ButtonControl" and e.element_id.startswith("ocr_action_")]
+        assert len(button_candidates) == 0
+
+
+# --- R1: OCR synthetic path regression tests ---
+
+
+class TestR1OcrSyntheticPath:
+    """R1: Verify OCR synthetic elements no longer get position-based ListItemControl."""
+
+    def setup_method(self):
+        self.compiler = InteractionCanvasEngine()
+        # Minimal raw_elements representing a sparse app (1 UIA root)
+        self.sparse_root = [
+            {
+                "element_id": "root",
+                "control_type": "WindowControl",
+                "name": "TestApp",
+                "text": "TestApp",
+                "bounding_rect": (0, 0, 1200, 800),
+            }
+        ]
+
+    def test_paint_menu_items_not_chat_item(self):
+        """Paint 菜单项 '文件/编辑/查看' 不应生成 chat_item 元素."""
+        ocr_blocks = [
+            {"text": "文件", "bbox": (8, 37, 47, 63), "confidence": 0.95},
+            {"text": "编辑", "bbox": (67, 42, 101, 61), "confidence": 0.95},
+            {"text": "查看", "bbox": (123, 42, 157, 61), "confidence": 0.95},
+            {"text": "工具", "bbox": (275, 152, 309, 175), "confidence": 0.95},
+            {"text": "画笔", "bbox": (380, 157, 407, 172), "confidence": 0.95},
+        ]
+        result = self.compiler.compile(
+            process_name="mspaint.exe",
+            raw_elements=self.sparse_root,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        roles_by_text = {e.text: e.semantic_role.value for e in result.elements if e.text}
+        for menu_text in ("文件", "编辑", "查看", "工具", "画笔"):
+            assert roles_by_text.get(menu_text) != "chat_item", f"'{menu_text}' should not be chat_item"
+
+    def test_paint_menu_items_are_text_or_list_item(self):
+        """Paint 菜单项应为 text 或 list_item（中性角色）."""
+        ocr_blocks = [
+            {"text": "文件", "bbox": (8, 37, 47, 63), "confidence": 0.95},
+            {"text": "编辑", "bbox": (67, 42, 101, 61), "confidence": 0.95},
+        ]
+        result = self.compiler.compile(
+            process_name="mspaint.exe",
+            raw_elements=self.sparse_root,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        roles = {e.semantic_role.value for e in result.elements if e.text in ("文件", "编辑")}
+        assert roles.issubset({"text", "list_item"}), f"Expected text/list_item, got {roles}"
+
+    def test_ocr_synthetic_left_side_not_list_item_control(self):
+        """OCR 文本在窗口左侧不应被推断为 ListItemControl."""
+        ocr_blocks = [
+            {"text": "设置", "bbox": (10, 100, 60, 120), "confidence": 0.95},
+            {"text": "音乐", "bbox": (10, 140, 60, 160), "confidence": 0.95},
+        ]
+        result = self.compiler.compile(
+            process_name="test.exe",
+            raw_elements=self.sparse_root,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        for elem in result.elements:
+            if elem.text in ("设置", "音乐"):
+                assert elem.control_type != "ListItemControl", \
+                    f"'{elem.text}' should not be ListItemControl (position-based inference removed)"
+
+    def test_ocr_send_still_button_control(self):
+        """'发送' OCR 应仍生成 ButtonControl + SEND_BUTTON."""
+        ocr_blocks = [
+            {"text": "发送", "bbox": (900, 700, 960, 730), "confidence": 0.98},
+        ]
+        result = self.compiler.compile(
+            process_name="test.exe",
+            raw_elements=self.sparse_root,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        send_elements = [e for e in result.elements if e.text == "发送"]
+        assert len(send_elements) >= 1
+        assert send_elements[0].control_type == "ButtonControl"
+        assert send_elements[0].semantic_role.value == "send_button"
+
+    def test_ocr_search_still_edit_control(self):
+        """'搜索' OCR 应仍生成 EditControl + SEARCH_INPUT."""
+        ocr_blocks = [
+            {"text": "搜索", "bbox": (100, 50, 200, 75), "confidence": 0.98},
+        ]
+        result = self.compiler.compile(
+            process_name="test.exe",
+            raw_elements=self.sparse_root,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        search_elements = [e for e in result.elements if e.text == "搜索"]
+        assert len(search_elements) >= 1
+        assert search_elements[0].control_type == "EditControl"
+        assert search_elements[0].semantic_role.value == "search_input"
+
+    def test_wechat_ocr_chat_tokens_still_chat(self):
+        """微信 OCR 中含 chat token 的 CJK 文本仍应生成 chat_item."""
+        ocr_blocks = [
+            {"text": "文件传输助手", "bbox": (70, 130, 250, 160), "confidence": 0.97},
+            {"text": "搜索", "bbox": (70, 60, 230, 92), "confidence": 0.98},
+            {"text": "发送", "bbox": (950, 700, 1010, 730), "confidence": 0.98},
+        ]
+        result = self.compiler.compile(
+            process_name="WeChat.exe",
+            raw_elements=self.sparse_root,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        roles_by_text = {e.text: e.semantic_role.value for e in result.elements if e.text}
+        # R1: TextControl + CJK + chat token → CHAT_ITEM (via targeted token match)
+        assert roles_by_text.get("文件传输助手") == "chat_item"
+        assert roles_by_text.get("搜索") == "search_input"
+        assert roles_by_text.get("发送") == "send_button"
+
+    def test_qq_ocr_chat_tokens_still_chat(self):
+        """QQ OCR 中含 chat token 的 CJK 文本仍应生成 chat_item."""
+        ocr_blocks = [
+            {"text": "会话列表", "bbox": (67, 76, 307, 140), "confidence": 0.96},
+            {"text": "联系人", "bbox": (67, 150, 200, 180), "confidence": 0.96},
+        ]
+        result = self.compiler.compile(
+            process_name="qq.exe",
+            raw_elements=self.sparse_root,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        roles_by_text = {e.text: e.semantic_role.value for e in result.elements if e.text}
+        # R1: TextControl + CJK + chat token → CHAT_ITEM
+        assert roles_by_text.get("会话列表") == "chat_item"
+        assert roles_by_text.get("联系人") == "chat_item"
+
+    def test_chrome_title_not_menu_or_chat(self):
+        """Chrome 标题/URL 文本不应变成 menu_item 或 chat_item."""
+        ocr_blocks = [
+            {"text": "首次调用 API", "bbox": (100, 10, 300, 30), "confidence": 0.95},
+            {"text": "DeepSeek API Docs", "bbox": (100, 40, 350, 60), "confidence": 0.95},
+        ]
+        result = self.compiler.compile(
+            process_name="chrome.exe",
+            raw_elements=self.sparse_root,
+            ocr_blocks=ocr_blocks,
+            allow_legacy_zone_reconstruction=False,
+        )
+        for elem in result.elements:
+            if elem.text in ("首次调用 API", "DeepSeek API Docs"):
+                assert elem.semantic_role.value not in ("chat_item", "menu_item"), \
+                    f"Chrome text '{elem.text}' should not be chat_item or menu_item"

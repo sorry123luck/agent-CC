@@ -17,6 +17,8 @@ env/
 .env.*
 *.local
 config/local/
+config/*.yaml
+!config/examples/*.yaml
 
 # Runtime data and generated artifacts
 data/
@@ -44,6 +46,13 @@ build/
 _tmp*/
 tmp/
 temp/
+reports/
+.codegraph/
+*.zip
+scripts/_*.txt
+scripts/_gen_*.py
+scripts/block_image_read_hook.py
+scripts/find_codex_play_button.py
 
 # OS/editor
 .DS_Store

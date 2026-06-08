@@ -26,7 +26,7 @@ class TestLaunchResolver:
     def test_score_path_appdata(self):
         """AppData 路径应该有合理分数"""
         score = self.resolver._score_path_location(
-            r"%LOCALAPPDATA%\Programs\WeChat\WeChat.exe"
+            r"C:\Users\Alice\AppData\Local\Programs\WeChat\WeChat.exe"
         )
         assert score >= 10
 

@@ -1,4 +1,4 @@
-﻿"""Unit tests for VLMProvider — cloud API call, parsing, availability."""
+"""Unit tests for VLMProvider — cloud API call, parsing, availability."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ class TestAvailability:
         assert provider.available is False
 
     def test_available_when_cloud_with_key(self):
-        provider = VLMProvider(_make_config(provider="cloud", api_key="test-key"))
+        provider = VLMProvider(_make_config(provider="cloud", api_key="sk-test"))
         assert provider.available is True
 
     def test_available_when_local(self):
@@ -58,7 +58,7 @@ class TestAnalyzeScreenshot:
     def test_calls_openai_api_with_correct_payload(self):
         config = _make_config(
             provider="cloud",
-            api_key="test-key",
+            api_key="sk-test-key",
             endpoint="https://api.openai.com/v1/chat/completions",
             model="gpt-4o",
         )
@@ -92,7 +92,7 @@ class TestAnalyzeScreenshot:
     def test_uses_model_from_config_not_hardcoded(self):
         config = _make_config(
             provider="cloud",
-            api_key="test-key",
+            api_key="sk-test",
             model="qwen-vl-max",
         )
         provider = VLMProvider(config)
@@ -110,7 +110,7 @@ class TestAnalyzeScreenshot:
         assert payload["model"] == "qwen-vl-max"
 
     def test_parses_multiple_candidates(self):
-        config = _make_config(provider="cloud", api_key="test-key", model="gpt-4o")
+        config = _make_config(provider="cloud", api_key="sk-test", model="gpt-4o")
         provider = VLMProvider(config)
         image = Image.new("RGB", (200, 100), "white")
 
@@ -133,7 +133,7 @@ class TestAnalyzeScreenshot:
         assert result[2].confidence == 0.78
 
     def test_handles_api_error_gracefully(self):
-        config = _make_config(provider="cloud", api_key="test-key", model="gpt-4o")
+        config = _make_config(provider="cloud", api_key="sk-test", model="gpt-4o")
         provider = VLMProvider(config)
         image = Image.new("RGB", (100, 80), "white")
 
@@ -144,7 +144,7 @@ class TestAnalyzeScreenshot:
         assert result == []
 
     def test_handles_invalid_json_response(self):
-        config = _make_config(provider="cloud", api_key="test-key", model="gpt-4o")
+        config = _make_config(provider="cloud", api_key="sk-test", model="gpt-4o")
         provider = VLMProvider(config)
         image = Image.new("RGB", (100, 80), "white")
 
@@ -159,7 +159,7 @@ class TestAnalyzeScreenshot:
         assert result == []
 
     def test_handles_markdown_wrapped_json(self):
-        config = _make_config(provider="cloud", api_key="test-key", model="gpt-4o")
+        config = _make_config(provider="cloud", api_key="sk-test", model="gpt-4o")
         provider = VLMProvider(config)
         image = Image.new("RGB", (100, 80), "white")
 
@@ -176,7 +176,7 @@ class TestAnalyzeScreenshot:
         assert result[0].bbox == (1, 2, 3, 4)
 
     def test_skips_items_with_invalid_bbox(self):
-        config = _make_config(provider="cloud", api_key="test-key", model="gpt-4o")
+        config = _make_config(provider="cloud", api_key="sk-test", model="gpt-4o")
         provider = VLMProvider(config)
         image = Image.new("RGB", (100, 80), "white")
 
@@ -197,7 +197,7 @@ class TestAnalyzeScreenshot:
 
     def test_uses_pil_image_not_file_path(self):
         """Verify the method accepts PIL.Image and doesn't try to read from disk."""
-        config = _make_config(provider="cloud", api_key="test-key", model="gpt-4o")
+        config = _make_config(provider="cloud", api_key="sk-test", model="gpt-4o")
         provider = VLMProvider(config)
         image = Image.new("RGB", (100, 80), "white")
 
@@ -216,7 +216,7 @@ class TestAnalyzeScreenshot:
         assert image_part["image_url"]["url"].startswith("data:image/png;base64,")
 
     def test_uses_explicit_proxy_port_for_cloud_vlm(self):
-        config = _make_config(provider="cloud", api_key="test-key", model="gpt-4o", proxy_port=7890)
+        config = _make_config(provider="cloud", api_key="sk-test", model="gpt-4o", proxy_port=7890)
         provider = VLMProvider(config)
         image = Image.new("RGB", (100, 80), "white")
 
@@ -245,7 +245,7 @@ class TestAnalyzeScreenshot:
 
 class TestSuggestCandidates:
     def test_converts_vlm_candidates_to_candidate_objects(self):
-        config = _make_config(provider="cloud", api_key="test-key", model="gpt-4o")
+        config = _make_config(provider="cloud", api_key="sk-test", model="gpt-4o")
         provider = VLMProvider(config)
 
         mock_resp = MagicMock()
@@ -269,4 +269,3 @@ class TestSuggestCandidates:
         assert results[0].confidence == 0.88
         assert results[0].provider_sources == ["vlm"]
         assert results[0].bounds == (10, 20, 60, 40)
-

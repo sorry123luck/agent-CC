@@ -402,7 +402,7 @@ class ActionService:
         crop_scale: float = 1.5,
     ) -> ActionOutcome:
         """
-        Execute one DeskCanvas decision record against a InteractionCanvas.
+        Execute one OpenClaw decision record against a InteractionCanvas.
 
         The decision can either:
         - select a concrete candidate to operate on
@@ -493,7 +493,7 @@ class ActionService:
         max_rounds: int = 3,
     ) -> ActionOutcome:
         """
-        Run a multi-round DeskCanvas loop:
+        Run a multi-round OpenClaw loop:
         payload -> decision -> optional zoom-in -> refined payload -> action.
         """
         payload = build_openclaw_payload(
@@ -581,7 +581,7 @@ class ActionService:
         max_candidates: int = 120,
     ) -> dict[str, Any]:
         """
-        Capture the current window again, crop to DeskCanvas's focus bbox,
+        Capture the current window again, crop to OpenClaw's focus bbox,
         rerun lightweight OCR/vision, and build a second-round payload.
         """
         from src.perception.ocr_service import get_ocr_service

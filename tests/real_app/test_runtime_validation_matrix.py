@@ -24,7 +24,7 @@ RUNTIME_SCENARIOS: tuple[RuntimeScenario, ...] = (
     RuntimeScenario("explorer", "File Explorer list/detail", ("natural:主内容区域", "natural:文件列表")),
     RuntimeScenario("notepad", "Notepad editor/menu", ("natural:编辑区域", "text:文件")),
     RuntimeScenario("taskmgr", "Task Manager native UI", ("natural:进程列表", "natural:顶部标签")),
-    RuntimeScenario("openclaw", "DeskCanvas console self-observe", ("natural:窗口列表", "natural:画布缓存")),
+    RuntimeScenario("openclaw", "OpenClaw console self-observe", ("natural:窗口列表", "natural:画布缓存")),
 )
 
 
@@ -53,7 +53,7 @@ def test_runtime_matrix_covers_required_scenarios():
     assert "File Explorer list/detail" in labels
     assert "Notepad editor/menu" in labels
     assert "Task Manager native UI" in labels
-    assert "DeskCanvas console self-observe" in labels
+    assert "OpenClaw console self-observe" in labels
 
 
 def test_runtime_matrix_queries_cover_core_agent_intents():

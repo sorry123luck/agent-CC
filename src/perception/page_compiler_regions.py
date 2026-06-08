@@ -976,7 +976,7 @@ class InteractionCanvasEngineRegionBuilder:
                 element.get("text", "") or element.get("name", ""),
                 element.get("name"),
             )
-            if center_x <= split_x and center_y >= top + int(height * 0.10):
+            if center_x <= split_x and center_y >= top + int(height * 0.03):
                 if role in {SemanticRole.CHAT_ITEM, SemanticRole.LIST_ITEM, SemanticRole.SEARCH_INPUT}:
                     left_count += 1
             else:

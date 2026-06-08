@@ -1,5 +1,6 @@
 """Unit tests for the current Pro-baseline PerceptionService flow."""
 
+import sys
 from unittest.mock import MagicMock, patch
 
 from PIL import Image
@@ -7,7 +8,7 @@ from PIL import Image
 from src.perception.element_merger import MergedElement
 from src.perception.perception_service import PerceptionService, ZonePageStructure
 from src.perception.uia_client import UIAElementInfo
-from src.perception.zone_partitioner import ZoneInfo, ZoneType
+from src.perception.zone_partitioner import WindowZoneStructure, ZoneInfo, ZoneType
 
 
 def make_elem(
@@ -82,6 +83,25 @@ def test_get_content_size_prefers_window_rect():
 
     assert width == 1936
     assert height == 1048
+
+
+def test_normalize_elements_clips_or_drops_elements_outside_window():
+    svc = PerceptionService()
+    window_info = type("WindowInfo", (), {"rect": (100, 100, 500, 400)})()
+    elements = [
+        make_elem(120, 120, 200, 180, element_id="inside"),
+        make_elem(110, 40, 210, 130, element_id="partial_top"),
+        make_elem(110, -500, 210, -450, element_id="outside_top"),
+        make_elem(490, 390, 540, 430, element_id="partial_bottom_right"),
+    ]
+
+    normalized = svc._normalize_elements_to_window_coords(elements, window_info)
+
+    by_id = {element.element_id: element for element in normalized}
+    assert by_id["inside"].bounding_rect == (20, 20, 100, 80)
+    assert by_id["partial_top"].bounding_rect == (10, 0, 110, 30)
+    assert "outside_top" not in by_id
+    assert by_id["partial_bottom_right"].bounding_rect == (390, 290, 400, 300)
 
 
 def test_create_page_snapshot_records_legacy_zone_as_hint_only():
@@ -285,6 +305,189 @@ def test_analyze_populates_ocr_blocks_and_fallback_vision_candidates():
     assert result.vision_candidates[0]["source"] == "paddleocr_bridge"
 
 
+def test_analyze_runs_full_window_ocr_for_sparse_uia_without_content_zone():
+    svc = PerceptionService()
+    svc._zone_partitioner = MagicMock()
+    svc._zone_partitioner.partition.return_value = WindowZoneStructure(
+        zones=[],
+        window_width=800,
+        window_height=600,
+    )
+    svc._vision_provider = MagicMock()
+    svc._vision_provider.parse_screenshot.side_effect = RuntimeError("vision offline")
+    screenshot = Image.new("RGB", (800, 600), "white")
+    uia_elements = [make_elem(0, 0, 800, 600, control_type="PaneControl")]
+    ocr_result = type(
+        "OCRResult",
+        (),
+        {
+            "blocks": [
+                type("Block", (), {"text": "搜索", "bbox": (40, 30, 160, 60), "confidence": 0.92})(),
+            ],
+            "provider": "paddleocr_bridge",
+            "success": True,
+            "error": None,
+            "elapsed_seconds": 0.2,
+            "used_region": (0, 0, 800, 600),
+            "worker_command": ["python", "worker.py"],
+            "worker_mode": "persistent",
+            "worker_reused": True,
+            "startup_seconds": 0.0,
+            "fallback_reason": None,
+        },
+    )()
+
+    with patch("src.perception.perception_service.UIAClient") as mock_uia_cls:
+        mock_uia = MagicMock()
+        mock_uia.find_all.return_value = uia_elements
+        mock_uia_cls.return_value = mock_uia
+        with patch("src.perception.perception_service.WindowEnumService") as mock_enum_cls:
+            mock_enum = MagicMock()
+            mock_enum.enumerate_all.return_value = []
+            mock_enum.get_foreground_window.return_value = None
+            mock_enum_cls.return_value = mock_enum
+            with patch("src.windows.screenshot_service.ScreenshotService") as mock_ss_cls:
+                mock_ss = MagicMock()
+                mock_ss.capture.return_value = screenshot
+                mock_ss_cls.return_value = mock_ss
+                with patch("src.perception.perception_service.get_ocr_service") as mock_get_ocr_service:
+                    mock_ocr = MagicMock()
+                    mock_ocr.extract_with_metadata.return_value = ocr_result
+                    mock_get_ocr_service.return_value = mock_ocr
+                    result = svc.analyze(12345)
+
+    mock_ocr.extract_with_metadata.assert_called_once_with(screenshot, region=(0, 0, 800, 600))
+    assert result.ocr_provider_details["fallback_reason"] == "sparse_uia_full_window"
+    assert result.ocr_provider_details["block_count"] == 1
+
+
+def test_sparse_full_window_ocr_treats_low_count_qq_uia_as_self_drawn_sparse():
+    svc = PerceptionService()
+    window_info = type("WindowInfo", (), {"process_name": "QQ.exe", "title": "QQ"})()
+    elements = [
+        make_elem(0, 0, 800, 600, control_type="PaneControl", element_id=f"e{i}")
+        for i in range(9)
+    ]
+
+    assert svc._should_run_sparse_full_window_ocr(elements, window_info) is True
+
+
+def test_sparse_full_window_ocr_detects_self_drawn_app_from_uia_names_without_window_info():
+    svc = PerceptionService()
+    elements = [
+        make_elem(0, 0, 800, 600, name="QQ", control_type="PaneControl", element_id="root"),
+        *[
+            make_elem(0, 0, 1, 1, control_type="PaneControl", element_id=f"noise{i}")
+            for i in range(8)
+        ],
+    ]
+
+    assert svc._should_run_sparse_full_window_ocr(elements, None) is True
+
+
+def test_analyze_skips_sparse_full_window_ocr_for_ultrawide_budget():
+    svc = PerceptionService()
+    svc._zone_partitioner = MagicMock()
+    svc._zone_partitioner.partition.return_value = WindowZoneStructure(
+        zones=[],
+        window_width=5000,
+        window_height=500,
+    )
+    svc._vision_provider = MagicMock()
+    svc._vision_provider.parse_screenshot.side_effect = RuntimeError("vision offline")
+    screenshot = Image.new("RGB", (5000, 500), "white")
+    uia_elements = [make_elem(0, 0, 5000, 500, control_type="PaneControl")]
+
+    with patch("src.perception.perception_service.UIAClient") as mock_uia_cls:
+        mock_uia = MagicMock()
+        mock_uia.find_all.return_value = uia_elements
+        mock_uia_cls.return_value = mock_uia
+        with patch("src.perception.perception_service.WindowEnumService") as mock_enum_cls:
+            mock_enum = MagicMock()
+            mock_enum.enumerate_all.return_value = []
+            mock_enum.get_foreground_window.return_value = None
+            mock_enum_cls.return_value = mock_enum
+            with patch("src.windows.screenshot_service.ScreenshotService") as mock_ss_cls:
+                mock_ss = MagicMock()
+                mock_ss.capture.return_value = screenshot
+                mock_ss_cls.return_value = mock_ss
+                with patch("src.perception.perception_service.get_ocr_service") as mock_get_ocr_service:
+                    result = svc.analyze(12345)
+
+    mock_get_ocr_service.assert_not_called()
+    assert result.ocr_provider_details["fallback_reason"] == "sparse_uia_full_window"
+    assert result.ocr_provider_details["error"] == "sparse_full_window_ocr_skipped_ultrawide_budget"
+    assert result.ocr_provider_details["block_count"] == 0
+
+
+def test_analyze_uses_top_band_ocr_roi_for_voicemeeter_sparse_uia():
+    svc = PerceptionService()
+    svc._zone_partitioner = MagicMock()
+    svc._zone_partitioner.partition.return_value = WindowZoneStructure(
+        zones=[],
+        window_width=1645,
+        window_height=770,
+    )
+    svc._vision_provider = MagicMock()
+    svc._vision_provider.parse_screenshot.side_effect = RuntimeError("vision offline")
+    screenshot = Image.new("RGB", (1645, 770), "white")
+    uia_elements = [make_elem(0, 0, 1645, 770, control_type="PaneControl")]
+    window_info = type(
+        "WindowInfo",
+        (),
+        {
+            "hwnd": 12345,
+            "process_name": "voicemeeter8x64.exe",
+            "title": "VoiceMeeter",
+            "rect": (0, 0, 1645, 770),
+        },
+    )()
+    ocr_result = type(
+        "OCRResult",
+        (),
+        {
+            "blocks": [
+                type("Block", (), {"text": "A1", "bbox": (1150, 8, 1185, 54), "confidence": 0.94})(),
+                type("Block", (), {"text": "Menu", "bbox": (1460, 12, 1545, 50), "confidence": 0.93})(),
+            ],
+            "provider": "paddleocr_bridge",
+            "success": True,
+            "error": None,
+            "elapsed_seconds": 0.8,
+            "used_region": (0, 0, 1645, 123),
+            "worker_command": ["python", "worker.py"],
+            "worker_mode": "persistent",
+            "worker_reused": True,
+            "startup_seconds": 0.0,
+            "fallback_reason": None,
+        },
+    )()
+
+    with patch("src.perception.perception_service.UIAClient") as mock_uia_cls:
+        mock_uia = MagicMock()
+        mock_uia.find_all.return_value = uia_elements
+        mock_uia_cls.return_value = mock_uia
+        with patch("src.perception.perception_service.WindowEnumService") as mock_enum_cls:
+            mock_enum = MagicMock()
+            mock_enum.enumerate_all.return_value = [window_info]
+            mock_enum.get_foreground_window.return_value = None
+            mock_enum_cls.return_value = mock_enum
+            with patch("src.windows.screenshot_service.ScreenshotService") as mock_ss_cls:
+                mock_ss = MagicMock()
+                mock_ss.capture.return_value = screenshot
+                mock_ss_cls.return_value = mock_ss
+                with patch("src.perception.perception_service.get_ocr_service") as mock_get_ocr_service:
+                    mock_ocr = MagicMock()
+                    mock_ocr.extract_with_metadata.return_value = ocr_result
+                    mock_get_ocr_service.return_value = mock_ocr
+                    result = svc.analyze(12345)
+
+    mock_ocr.extract_with_metadata.assert_called_once_with(screenshot, region=(0, 0, 1645, 123))
+    assert result.ocr_provider_details["fallback_reason"] == "sparse_uia_top_band"
+    assert result.ocr_provider_details["used_region"] == (0, 0, 1645, 123)
+    assert result.ocr_provider_details["block_count"] == 2
+
+
 def test_analyze_without_screenshot_returns_empty_ocr_and_vision():
     svc = PerceptionService()
 
@@ -309,6 +512,87 @@ def test_analyze_without_screenshot_returns_empty_ocr_and_vision():
     assert result.screenshot_provider_details["success"] is False
     assert result.screenshot_provider_details["provider"] == "window_capture"
     assert "no screenshot" in result.screenshot_provider_details["error"]
+
+
+def test_analyze_initializes_com_before_uia_client():
+    svc = PerceptionService()
+    fake_pythoncom = MagicMock()
+    fake_pythoncom.initialized = False
+
+    def co_initialize():
+        fake_pythoncom.initialized = True
+
+    fake_pythoncom.CoInitialize.side_effect = co_initialize
+
+    class GuardedUIAClient:
+        def __init__(self, hwnd: int) -> None:
+            if not fake_pythoncom.initialized:
+                raise RuntimeError("com_not_initialized")
+
+        def find_all(self):
+            return []
+
+    with patch.dict(sys.modules, {"pythoncom": fake_pythoncom}):
+        with patch("src.perception.perception_service.UIAClient", GuardedUIAClient):
+            with patch("src.perception.perception_service.WindowEnumService") as mock_enum_cls:
+                mock_enum = MagicMock()
+                mock_enum.enumerate_all.return_value = []
+                mock_enum.get_foreground_window.return_value = None
+                mock_enum_cls.return_value = mock_enum
+                with patch("src.windows.screenshot_service.ScreenshotService") as mock_ss_cls:
+                    mock_ss = MagicMock()
+                    mock_ss.capture.side_effect = Exception("no screenshot")
+                    mock_ss_cls.return_value = mock_ss
+                    svc.analyze(12345)
+
+    fake_pythoncom.CoInitialize.assert_called_once()
+    fake_pythoncom.CoUninitialize.assert_called_once()
+
+
+def test_analyze_uses_bounded_uia_for_deep_browser_trees():
+    svc = PerceptionService()
+    window_info = type(
+        "WindowInfo",
+        (),
+        {
+            "hwnd": 12345,
+            "title": "Chrome",
+            "process_name": "chrome.exe",
+            "rect": (0, 0, 1280, 720),
+        },
+    )()
+    root_elem = make_elem(0, 0, 1280, 720, control_type="WindowControl", element_id="root")
+    button_elem = make_elem(20, 20, 120, 60, name="搜索", control_type="ButtonControl", element_id="button")
+
+    with patch("src.perception.perception_service.UIAClient") as mock_uia_cls:
+        mock_uia = MagicMock()
+        mock_uia.find_all_bounded.return_value = [root_elem, button_elem]
+        mock_uia.find_all_bounded_diagnostics = {
+            "mode": "bounded",
+            "max_elements": 900,
+            "truncated": True,
+            "elapsed_seconds": 0.2,
+        }
+        mock_uia_cls.return_value = mock_uia
+        with patch("src.perception.perception_service.WindowEnumService") as mock_enum_cls:
+            mock_enum = MagicMock()
+            mock_enum.enumerate_all.return_value = [window_info]
+            mock_enum.get_foreground_window.return_value = None
+            mock_enum_cls.return_value = mock_enum
+            with patch("src.windows.screenshot_service.ScreenshotService") as mock_ss_cls:
+                mock_ss = MagicMock()
+                mock_ss.capture.side_effect = Exception("no screenshot")
+                mock_ss_cls.return_value = mock_ss
+                zone_page = svc.analyze(12345)
+
+    mock_uia.find_all_bounded.assert_called_once()
+    mock_uia.find_all.assert_not_called()
+    assert zone_page.uia_provider_details["mode"] == "bounded"
+    assert zone_page.uia_provider_details["truncated"] is True
+
+    snapshot = svc.create_page_snapshot(zone_page, process_name="chrome.exe")
+    assert snapshot.artifacts["uia_provider"]["mode"] == "bounded"
+    assert snapshot.provider_trace.provider_details["uia_provider"]["truncated"] is True
 
 
 def test_analyze_screen_region_capture_uses_window_frame_region():

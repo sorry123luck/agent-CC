@@ -10,9 +10,9 @@ def test_default_local_omniparser_paths_are_project_owned(tmp_path):
 
     config = provider._config
 
-    assert "X:\\OmniParser" not in config.project_root
-    assert "X:\\OmniParser" not in config.som_model_path
-    assert "X:\\OmniParser" not in config.caption_model_path
+    assert "D:\\OmniParser" not in config.project_root
+    assert "D:\\OmniParser" not in config.som_model_path
+    assert "D:\\OmniParser" not in config.caption_model_path
     assert config.project_root.endswith("vendor\\omniparser_runtime")
     assert config.som_model_path.endswith("models\\omniparser\\weights\\icon_detect\\model.pt")
 

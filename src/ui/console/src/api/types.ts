@@ -1,4 +1,4 @@
-/** Backend API response types for DeskCanvas Console. */
+/** Backend API response types for OpenClaw Console. */
 
 // ── Page Model Types (E Phase 2) ──
 

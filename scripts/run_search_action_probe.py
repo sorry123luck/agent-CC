@@ -1,4 +1,4 @@
-﻿"""Run controlled search probes from a search action plan.
+"""Run controlled search probes from a search action plan.
 
 The script clicks the recorded search entry, pastes a query, waits for the UI
 to settle, captures screenshots, observes the target window, and optionally
@@ -25,11 +25,11 @@ from src.windows import window_action_context as action_ctx
 
 
 DEFAULT_QUERIES = {
-    "qq.exe": "sample_contact",
-    "weixin.exe": "示例联系人",
-    "wechat.exe": "示例联系人",
-    "feishu.exe": "示例联系人",
-    "lark.exe": "示例联系人",
+    "qq.exe": "jz",
+    "weixin.exe": "念",
+    "wechat.exe": "念",
+    "feishu.exe": "大笨蛋",
+    "lark.exe": "大笨蛋",
 }
 
 def build_probe_targets(
@@ -789,7 +789,7 @@ def main() -> int:
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
-    parser.add_argument("--query", action="append", default=[], help="Override query, e.g. qq.exe=sample_contact")
+    parser.add_argument("--query", action="append", default=[], help="Override query, e.g. qq.exe=jz")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--wait-seconds", type=float, default=2.5)
     args = parser.parse_args()
@@ -808,4 +808,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -366,23 +366,9 @@ class SemanticFusion:
         img_w: int, img_h: int,
         cfg: FusionConfig | None = None,
     ) -> str:
-        """Classify region position in the window."""
-        _ = (left + right) / 2, (top + bottom) / 2  # available for future use
+        """Classify region position in the window.
 
-        side_ratio = cfg.navigation_side_band_ratio if cfg else 0.30
-        bottom_ratio = cfg.action_bar_band_ratio if cfg else 0.22
-
-        # Top band
-        if top < img_h * 0.10 and bottom < img_h * side_ratio:
-            return "top"
-        # Bottom band
-        if top > img_h * (1.0 - bottom_ratio):
-            return "bottom"
-        # Left band
-        if left < img_w * side_ratio and right < img_w * 0.50:
-            return "left"
-        # Right band
-        if left > img_w * 0.50:
-            return "right"
-        # Center
-        return "center"
+        Uses unified position_band module (Phase U0).
+        """
+        from src.perception.position_band import classify_position_str
+        return classify_position_str((left, top, right, bottom), img_w, img_h)

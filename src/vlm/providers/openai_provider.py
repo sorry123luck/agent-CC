@@ -245,7 +245,7 @@ class OpenAICompatibleProvider:
         if self.capabilities.supports_json_object:
             payload.setdefault("response_format", {"type": "json_object"})
 
-        # provider_options 覆盖（过滤 transport / DeskCanvas-internal 参数）
+        # provider_options 覆盖（过滤 transport / OpenClaw-internal 参数）
         _TRANSPORT_KEYS = frozenset({"timeout", "_trace_dir"})
         _INTERNAL_KEYS = frozenset({"response_contract", "roi_profile"})
         for k, v in request.provider_options.items():
@@ -258,7 +258,7 @@ class OpenAICompatibleProvider:
         }
         if self.name == "openrouter":
             headers["HTTP-Referer"] = "http://127.0.0.1/openclaw"
-            headers["X-Title"] = "DeskCanvas"
+            headers["X-Title"] = "OpenClaw Desktop Agent"
 
         timeout = request.provider_options.get("timeout", 60)
         request_stats = self._request_stats(payload)

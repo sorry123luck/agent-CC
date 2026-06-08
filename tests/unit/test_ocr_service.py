@@ -86,6 +86,59 @@ class TestOCRService:
         assert result.success is True
         assert result.blocks[0].bbox == (25, 38, 65, 52)
 
+    def test_extract_with_metadata_downscales_large_images_and_restores_bboxes(self):
+        service = _force_subprocess(OCRService())
+        service._config.max_image_side = 2400  # noqa: SLF001
+        image = Image.new("RGB", (4800, 1200), color="white")
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stdout = (
+            '{"texts":["A1"],"bboxes_xyxy":[[600,100,650,130]],'
+            '"confidences":[0.94],"time":0.2}'
+        )
+        completed.stderr = ""
+        saved_sizes: list[tuple[int, int]] = []
+
+        def fake_run(command, **_kwargs):
+            saved_sizes.append(Image.open(command[2]).size)
+            return completed
+
+        with patch("src.perception.ocr_service.subprocess.run", side_effect=fake_run):
+            result = service.extract_with_metadata(image, filter_pure_digits=False)
+
+        assert saved_sizes == [(2400, 600)]
+        assert result.success is True
+        assert result.blocks[0].bbox == (1200, 200, 1300, 260)
+
+    def test_extract_with_metadata_tiles_ultrawide_images_and_offsets_bboxes(self):
+        service = _force_subprocess(OCRService())
+        service._config.max_image_side = 2400  # noqa: SLF001
+        image = Image.new("RGB", (5000, 500), color="white")
+        completed = MagicMock()
+        completed.returncode = 0
+        completed.stderr = ""
+        payloads = [
+            '{"texts":["A1"],"bboxes_xyxy":[[100,20,140,50]],"confidences":[0.94],"time":0.1}',
+            '{"texts":["Menu"],"bboxes_xyxy":[[200,30,260,60]],"confidences":[0.95],"time":0.2}',
+            '{"texts":[],"bboxes_xyxy":[],"confidences":[],"time":0.1}',
+        ]
+        saved_sizes: list[tuple[int, int]] = []
+
+        def fake_run(command, **_kwargs):
+            saved_sizes.append(Image.open(command[2]).size)
+            completed.stdout = payloads[len(saved_sizes) - 1]
+            return completed
+
+        with patch("src.perception.ocr_service.subprocess.run", side_effect=fake_run):
+            result = service.extract_with_metadata(image)
+
+        assert saved_sizes == [(2400, 500), (2400, 500), (200, 500)]
+        assert result.success is True
+        assert result.fallback_reason == "tiled_wide_image"
+        assert [block.text for block in result.blocks] == ["A1", "Menu"]
+        assert result.blocks[0].bbox == (100, 20, 140, 50)
+        assert result.blocks[1].bbox == (2600, 30, 2660, 60)
+
     def test_extract_with_metadata_handles_worker_error(self):
         service = _force_subprocess(OCRService())
         image = Image.new("RGB", (100, 80), color="white")

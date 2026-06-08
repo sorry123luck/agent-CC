@@ -15,7 +15,6 @@ import io
 import json
 import logging
 import os
-import site
 import sys
 import time
 from typing import Any
@@ -30,14 +29,22 @@ _stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="\n")
 
 
 def _preload_nvidia_dlls() -> None:
-    site_packages = os.environ.get("OPENCLAW_PYTHON_SITE_PACKAGES")
-    if not site_packages:
-        candidates = site.getsitepackages()
-        site_packages = candidates[0] if candidates else ""
-    if not site_packages:
-        return
+    """Pre-load NVIDIA DLLs so PaddleOCR can use GPU.
+
+    Resolution order:
+    1. OPENCLAW_NVIDIA_SITE_PACKAGES env var (explicit override)
+    2. Auto-detect from current Python's site-packages
+    """
+    site = os.environ.get("OPENCLAW_NVIDIA_SITE_PACKAGES", "")
+    if not site or not os.path.exists(site):
+        import site as site_mod
+
+        for sp in site_mod.getsitepackages():
+            if os.path.exists(os.path.join(sp, "nvidia")):
+                site = sp
+                break
     nvidia_bins = [
-        os.path.join(site_packages, "nvidia", d, "bin")
+        os.path.join(site, "nvidia", d, "bin")
         for d in ["cublas", "cudnn", "cuda_runtime", "curand", "cufft", "cusparse", "cusolver"]
     ]
     for directory in nvidia_bins:

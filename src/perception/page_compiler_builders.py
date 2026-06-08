@@ -201,10 +201,14 @@ class InteractionCanvasEngineSupportBuilder:
                 token in merged_text_lower for token in ("search", "find", "filter")
             ):
                 return SemanticRole.SEARCH_INPUT
+            # CJK text with explicit chat token → CHAT_ITEM
+            # (e.g. "文件传输助手", "会话列表", "联系人" from OCR)
+            if has_cjk and any(token in merged_text for token in _CHAT_ITEM_TOKENS):
+                return SemanticRole.CHAT_ITEM
             return SemanticRole.TEXT
 
         if "list" in control_type_lower or "listitem" in control_type_lower:
-            if any(token in merged_text for token in _CHAT_ITEM_TOKENS) or has_cjk:
+            if any(token in merged_text for token in _CHAT_ITEM_TOKENS):
                 return SemanticRole.CHAT_ITEM
             return SemanticRole.LIST_ITEM
         if "tree" in control_type_lower or "treeitem" in control_type_lower:

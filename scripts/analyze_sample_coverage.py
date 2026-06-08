@@ -115,16 +115,17 @@ def write_sample_coverage_report(report: dict[str, Any], output_dir: Path) -> No
         f"- Overall: {report.get('overall_status', '')}",
         f"- Counts: {_format_counts(report.get('counts') or {})}",
         "",
-        "| requirement | status | sample | reason |",
-        "| --- | --- | --- | --- |",
+        "| requirement | status | sample | reason | collection_hint |",
+        "| --- | --- | --- | --- | --- |",
     ]
     for item in list(report.get("requirements") or []):
         lines.append(
-            "| {rid} | {status} | {sample} | {reason} |".format(
+            "| {rid} | {status} | {sample} | {reason} | {hint} |".format(
                 rid=_md(item.get("requirement_id")),
                 status=_md(item.get("status")),
                 sample=_md(item.get("sample")),
                 reason=_md(item.get("reason")),
+                hint=_md(item.get("collection_hint")),
             )
         )
     (output_dir / "sample_coverage_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -150,6 +151,7 @@ def _evaluate_requirement(
                 "status": "covered",
                 "sample": str(row.get("sample") or ""),
                 "reason": "valid sample in matrix",
+                "collection_hint": "",
             }
     invalid_reason = _invalid_reason(req, excluded=excluded)
     if invalid_reason:
@@ -159,6 +161,7 @@ def _evaluate_requirement(
             "status": "invalid",
             "sample": "",
             "reason": invalid_reason,
+            "collection_hint": _collection_hint(str(req["requirement_id"]), invalid_reason),
         }
     manifest_reason = _manifest_reason(req, manifest_rows=manifest_rows)
     return {
@@ -167,6 +170,7 @@ def _evaluate_requirement(
         "status": "missing",
         "sample": "",
         "reason": manifest_reason or "no matching valid sample",
+        "collection_hint": _collection_hint(str(req["requirement_id"]), manifest_reason or "no matching valid sample"),
     }
 
 
@@ -211,6 +215,23 @@ def _requirement_processes(requirement_id: str) -> set[str]:
         "voicemeeter_control_matrix": {"voicemeeter.exe", "voicemeeter8x64.exe", "voicemeeterpro.exe"},
         "netease_music": {"cloudmusic.exe", "neteasecloudmusic.exe"},
     }.get(requirement_id, set())
+
+
+def _collection_hint(requirement_id: str, reason: str = "") -> str:
+    hints = {
+        "wechat_chat": "Open a normal WeChat chat window, then collect with --include-process weixin.exe.",
+        "qq_private_chat": "Open a full QQ private-chat window, not the tiny tray/utility window, then collect with --include-process qq.exe.",
+        "qq_group_chat": "Open a full QQ group-chat window with the right member list visible, then collect with --include-process qq.exe.",
+        "qq_valid_window": "Restore a full QQ main/chat window before sampling; tiny windows are excluded.",
+        "feishu_chat": "Open a Feishu message conversation, wait for the message pane to load, then collect with --include-process feishu.exe.",
+        "flclash_dashboard": "Restore FlClash to the dashboard/proxy page, then collect with --include-process flclash.exe.",
+        "voicemeeter_control_matrix": "Restore VoiceMeeter's main mixer window, then collect with --include-process voicemeeter8x64.exe.",
+        "netease_music": "Open or restore NetEase CloudMusic with a visible player/list page, then collect with --include-process cloudmusic.exe.",
+    }
+    hint = hints.get(requirement_id, "Open the target application/page and rerun collect_live_sample_matrix.py.")
+    if reason:
+        return f"{hint} Current reason: {reason}."
+    return hint
 
 
 def _proc(row: dict[str, Any]) -> str:

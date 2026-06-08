@@ -22,6 +22,7 @@ Page Compiler — P3 页面结构编译器
 - zone_structure 可选；有则用真实区域，无则降级为单虚拟 content_area
 """
 
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -210,6 +211,12 @@ class InteractionCanvasEngine:
         surface_info = self._build_surface_info(surface_result)
         surface_type = surface_info.surface_type
         raw_elements = self._augment_raw_elements(raw_elements, ocr_blocks, surface_type)
+        raw_elements = self._augment_actionable_ocr(raw_elements, ocr_blocks)
+        raw_elements = self._augment_sparse_app_layout_elements(
+            raw_elements,
+            process_name=process_name,
+            window_title=window_title,
+        )
 
         # === 2. 区域划分（可选，使用 ZonePartitioner 结果）===
         if zone_structure is None and raw_elements and allow_legacy_zone_reconstruction:
@@ -501,6 +508,77 @@ class InteractionCanvasEngine:
             )
         return augmented
 
+    # Minimal OCR actionable patterns: only high-confidence, short text
+    _ACTIONABLE_OCR_RULES: list[dict[str, str]] = [
+        {"text": "menu", "control_type": "ButtonControl"},
+        {"text": "菜单", "control_type": "ButtonControl"},
+    ]
+
+    def _augment_actionable_ocr(
+        self,
+        raw_elements: list[dict[str, Any]],
+        ocr_blocks: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Add actionable candidates from OCR text blocks.
+
+        Only processes high-confidence, short text that matches known
+        actionable patterns (Menu/menu/菜单).  Strict filters prevent
+        URL, date, message text from becoming buttons.
+        """
+        if not ocr_blocks:
+            return raw_elements
+
+        existing_texts = set()
+        for elem in raw_elements:
+            t = str(elem.get("text") or "").strip().lower()
+            if t:
+                existing_texts.add(t)
+
+        augmented = list(raw_elements)
+        for index, block in enumerate(ocr_blocks):
+            text = str(block.get("text") or "").strip()
+            text_lower = text.lower()
+            confidence = float(block.get("confidence") or 0)
+
+            # Strict filters
+            if len(text) > 10 or len(text) < 2:
+                continue
+            if confidence < 0.8:
+                continue
+            if any(token in text_lower for token in ("http", "www", ".com", ".cn")):
+                continue
+            if text_lower.replace("/", "").replace("-", "").replace(":", "").strip().isdigit():
+                continue  # date like "05/12"
+            if text_lower in existing_texts:
+                continue  # already have this text from UIA
+
+            # Check against actionable rules
+            matched_rule = None
+            for rule in self._ACTIONABLE_OCR_RULES:
+                if rule["text"] == text_lower:
+                    matched_rule = rule
+                    break
+            if matched_rule is None:
+                continue
+
+            bbox = self._coerce_bbox(block.get("bbox"))
+            if bbox is None:
+                continue
+            if self._max_iou_with_elements(bbox, raw_elements) >= 0.5:
+                continue
+
+            augmented.append({
+                "element_id": f"ocr_action_{index}",
+                "control_type": matched_rule["control_type"],
+                "name": text,
+                "text": text,
+                "bounding_rect": bbox,
+                "synthetic_source": "ocr_actionable",
+                "ocr_confidence": confidence,
+            })
+
+        return augmented
+
     def _max_iou_with_elements(
         self,
         bbox: tuple[int, int, int, int],
@@ -514,32 +592,148 @@ class InteractionCanvasEngine:
             best_score = max(best_score, self._compute_iou(bounds, bbox))
         return best_score
 
+    def _augment_sparse_app_layout_elements(
+        self,
+        raw_elements: list[dict[str, Any]],
+        *,
+        process_name: str | None,
+        window_title: str,
+    ) -> list[dict[str, Any]]:
+        """Add local geometry candidates for stable, self-drawn sparse apps."""
+        if len(raw_elements) > 3:
+            return raw_elements
+        bounds = self._sparse_window_bounds(raw_elements)
+        if bounds is None:
+            return raw_elements
+
+        process = str(process_name or "").lower()
+        title = str(window_title or "").lower()
+        if process == "qq.exe" or title == "qq":
+            return [*raw_elements, *self._qq_sparse_layout(bounds)]
+        if process.startswith("voicemeeter") or "voicemeeter" in title:
+            return [*raw_elements, *self._voicemeeter_sparse_layout(bounds)]
+        return raw_elements
+
+    def _sparse_window_bounds(self, raw_elements: list[dict[str, Any]]) -> tuple[int, int, int, int] | None:
+        boxes = [self._get_element_bounds(element) for element in raw_elements]
+        boxes = [box for box in boxes if box is not None]
+        if not boxes:
+            return None
+        left = min(box[0] for box in boxes)
+        top = min(box[1] for box in boxes)
+        right = max(box[2] for box in boxes)
+        bottom = max(box[3] for box in boxes)
+        if right <= left or bottom <= top:
+            return None
+        return (left, top, right, bottom)
+
+    def _qq_sparse_layout(self, bounds: tuple[int, int, int, int]) -> list[dict[str, Any]]:
+        left, top, right, bottom = bounds
+        width = right - left
+        height = bottom - top
+        return [
+            self._layout_element(
+                "qq_layout_search",
+                "EditControl",
+                "搜索",
+                (left + int(width * 0.08), top + int(height * 0.045), left + int(width * 0.27), top + int(height * 0.09)),
+            ),
+            self._layout_element(
+                "qq_layout_chat_item",
+                "ListItemControl",
+                "会话列表",
+                (left + int(width * 0.07), top + int(height * 0.12), left + int(width * 0.32), top + int(height * 0.22)),
+            ),
+            self._layout_element(
+                "qq_layout_message_input",
+                "EditControl",
+                "",
+                (left + int(width * 0.33), top + int(height * 0.79), left + int(width * 0.78), top + int(height * 0.96)),
+                name="message_input",
+                semantic_role="message_input",
+            ),
+            self._layout_element(
+                "qq_layout_send",
+                "ButtonControl",
+                "发送",
+                (left + int(width * 0.82), top + int(height * 0.93), left + int(width * 0.93), top + int(height * 0.98)),
+                risk_tags=["send"],
+            ),
+        ]
+
+    def _voicemeeter_sparse_layout(self, bounds: tuple[int, int, int, int]) -> list[dict[str, Any]]:
+        left, top, right, bottom = bounds
+        width = right - left
+        height = bottom - top
+        return [
+            self._layout_element(
+                "voicemeeter_layout_hardware",
+                "TextControl",
+                "Hardware",
+                (left + int(width * 0.00), top + int(height * 0.05), left + int(width * 0.12), top + int(height * 0.11)),
+            ),
+            self._layout_element(
+                "voicemeeter_layout_a1",
+                "ButtonControl",
+                "A1",
+                (left + int(width * 0.70), top + int(height * 0.01), left + int(width * 0.72), top + int(height * 0.07)),
+            ),
+            self._layout_element(
+                "voicemeeter_layout_menu",
+                "ButtonControl",
+                "Menu",
+                (left + int(width * 0.89), top + int(height * 0.02), left + int(width * 0.94), top + int(height * 0.06)),
+            ),
+        ]
+
+    def _layout_element(
+        self,
+        element_id: str,
+        control_type: str,
+        text: str,
+        bbox: tuple[int, int, int, int],
+        *,
+        name: str | None = None,
+        semantic_role: str | None = None,
+        risk_tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "element_id": element_id,
+            "control_type": control_type,
+            "name": name if name is not None else text,
+            "text": text,
+            "bounding_rect": bbox,
+            "synthetic_source": "app_layout",
+        }
+        if semantic_role:
+            payload["semantic_role"] = semantic_role
+        if risk_tags:
+            payload["risk_tags"] = risk_tags
+        return payload
+
     def _infer_synthetic_control_type(
         self,
         text: str,
         bbox: tuple[int, int, int, int],
         raw_elements: list[dict[str, Any]],
     ) -> str:
-        left, top, right, bottom = bbox
-        width = max(right - left, 1)
-        center_x = (left + right) // 2
-        window_left = min((self._get_element_bounds(element) or bbox)[0] for element in (raw_elements or [{}]))
-        window_right = max((self._get_element_bounds(element) or bbox)[2] for element in (raw_elements or [{}]))
-        window_width = max(window_right - window_left, 1)
         lower_text = text.lower()
+        compact_text = "".join(text.split())
+        short_action_label = len(compact_text) <= 16 and len(text.split()) <= 4
 
         if any(token in text for token in ("搜索", "查找", "筛选")) or any(
             token in lower_text for token in ("search", "find", "filter")
         ):
             return "EditControl"
-        if any(token in text for token in ("发送", "提交", "确定", "确认", "取消", "测试")) or any(
-            token in lower_text for token in ("send", "submit", "confirm", "cancel", "test")
+        if short_action_label and (
+            any(token in text for token in ("发送", "提交", "确定", "确认", "取消", "测试"))
+            or any(token in lower_text for token in ("send", "submit", "confirm", "cancel", "test", "menu"))
+            or re.fullmatch(r"[ab]\d{1,2}", compact_text.lower()) is not None
         ):
             return "ButtonControl"
-        if center_x <= window_left + int(window_width * 0.38):
-            return "ListItemControl"
-        if width >= int(window_width * 0.45):
-            return "PaneControl"
+        # OCR synthetic elements default to TextControl.
+        # Do NOT infer ListItemControl/PaneControl from position alone.
+        # UniversalRegionEngine will assign structure based on layout evidence.
         return "TextControl"
 
     def _synthesize_boundary_elements(
@@ -619,6 +813,10 @@ class InteractionCanvasEngine:
         candidate_id = f"{region.region_id}_message_input"
         if candidate_id in existing_ids:
             return None
+        if candidate_right <= candidate_left or candidate_bottom <= candidate_top:
+            return None
+        if candidate_right - candidate_left < 80 or candidate_bottom - candidate_top < 24:
+            return None
 
         return Candidate(
             element_id=candidate_id,
@@ -642,23 +840,25 @@ class InteractionCanvasEngine:
         raw_elements: list[dict[str, Any]],
         zone_structure: WindowZoneStructure | None,
     ) -> list[dict[str, Any]]:
-        """从原始元素或 ZonePartitioner 结果中提取 content_area 元素"""
+        """从原始元素或 ZonePartitioner 结果中提取 content_area 元素。
+
+        包含与中间内容带有重叠的元素，以及窗口底部输入区和顶部搜索/列表区的元素。
+        排除纯标题栏区域（顶部 5%）和纯状态栏区域（底部 3%）。
+        """
         if zone_structure is not None:
             content_zone = zone_structure.get_zone(ZoneType.CONTENT_AREA)
             if content_zone and content_zone.elements:
-                # 将 MergedElement 转回 dict 格式供 ContentAreaClassifier 使用
                 return [
                     {
                         "element_id": e.element_id or f"zone_elem_{i}",
                         "control_type": e.control_type,
                         "name": e.name,
-                        "text": e.name,  # MergedElement 用 name 作为文本
+                        "text": e.name,
                         "bounding_rect": e.bounding_rect,
                     }
                     for i, e in enumerate(content_zone.elements)
                 ]
 
-        # 降级策略：取中间 Y 区域的元素
         if not raw_elements:
             return []
 
@@ -674,15 +874,23 @@ class InteractionCanvasEngine:
         max_y = max(r[3] for r in all_rects)
         window_height = max_y - min_y if max_y > min_y else 1
 
-        threshold_top = min_y + int(window_height * 0.2)
-        threshold_bottom = max_y - int(window_height * 0.2)
+        # Narrow exclusion: title bar (top 5%) and status bar (bottom 3%)
+        title_cutoff = min_y + int(window_height * 0.05)
+        status_cutoff = max_y - int(window_height * 0.03)
 
         content_elements = []
         for e in raw_elements:
             bounds = self._get_element_bounds(e)
-            if bounds:
-                if bounds[1] >= threshold_top and bounds[3] <= threshold_bottom:
-                    content_elements.append(e)
+            if not bounds:
+                continue
+            l, t, r, b = bounds
+            # Exclude elements entirely in title bar zone
+            if b <= title_cutoff:
+                continue
+            # Exclude elements entirely in status bar zone
+            if t >= status_cutoff:
+                continue
+            content_elements.append(e)
 
         return content_elements if content_elements else raw_elements[:10]
 
@@ -762,6 +970,8 @@ class InteractionCanvasEngine:
                 name=name,
                 vision_match=vision_match,
             )
+            if elem_dict.get("semantic_role"):
+                semantic_role = self._support_builder.semantic_role_from_vision_label(elem_dict.get("semantic_role"))
             if elem_dict.get("synthetic_source") == "ocr":
                 semantic_role = self._refine_synthetic_semantic_role(
                     semantic_role,
@@ -775,7 +985,7 @@ class InteractionCanvasEngine:
 
             # 元素来源归因：来自 zone_partition 还是直接来自 UIA/fallback
             source = "zone_partition" if element_id in element_to_zone else elem_dict.get("synthetic_source", "uia")
-            element_source_stats[source] += 1
+            element_source_stats[source] = element_source_stats.get(source, 0) + 1
             provider_sources = [source]
             attributes: dict[str, Any] = {"automation_id": automation_id} if automation_id else {}
             if ocr_match:
@@ -817,6 +1027,7 @@ class InteractionCanvasEngine:
                 interactable=interactable,
                 confidence=confidence,
                 provider_sources=list(dict.fromkeys(provider_sources)),
+                risk_tags=self._default_risk_tags(semantic_role, elem_dict),
                 attributes=attributes,
             )
             self._apply_vision_group_hint(elem, vision_control_groups)
@@ -1665,6 +1876,14 @@ class InteractionCanvasEngine:
 
     def _semantic_role_from_vision_label(self, value: Any) -> SemanticRole:
         return self._support_builder.semantic_role_from_vision_label(value)
+
+    def _default_risk_tags(self, semantic_role: SemanticRole, elem_dict: dict[str, Any]) -> list[str]:
+        tags = list(elem_dict.get("risk_tags") or [])
+        if semantic_role == SemanticRole.SEND_BUTTON and "send" not in tags:
+            tags.append("send")
+        if semantic_role == SemanticRole.SUBMIT_BUTTON and "submit" not in tags:
+            tags.append("submit")
+        return tags
 
     def _infer_semantic_role(
         self, control_type: str, text: str, name: str | None

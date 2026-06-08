@@ -18,8 +18,8 @@ class DesktopScanner:
     """桌面软件扫描器"""
 
     DESKTOP_PATHS = [
-        r"%USERPROFILE%\Desktop",
-        r"%PUBLIC%\Desktop",
+        r"C:\Users\$USER\Desktop",
+        r"C:\Users\Public\Desktop",
     ]
 
     def scan(self) -> Generator[dict, None, None]:

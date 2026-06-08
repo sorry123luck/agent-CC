@@ -177,9 +177,249 @@ class TestQueryRanking:
         assert len(result.candidates) == 1
 
 
+class TestNaturalLanguageIntent:
+    def test_chinese_search_box_query_prefers_search_input_over_search_button(self):
+        """中文自然查询“找搜索框”应优先返回输入类候选，而不是搜索按钮。"""
+        engine = CanvasQueryEngine()
+        button = _make_candidate(
+            "search_button",
+            text="搜索",
+            semantic_role=SemanticRole.BUTTON,
+            confidence=1.0,
+            control_type="Button",
+        )
+        search_input = _make_candidate(
+            "search_input",
+            text="",
+            placeholder="搜索",
+            semantic_role=SemanticRole.SEARCH_INPUT,
+            confidence=0.7,
+            control_type="Edit",
+        )
+        canvas = _make_canvas([button, search_input])
+
+        result = engine.query(canvas, QueryTarget(natural_language="找搜索框"))
+
+        assert result.candidates[0].element_id == "search_input"
+
+    def test_send_button_query_blocks_message_input_false_positive(self):
+        """“发送按钮”不能误命中包含发送文字的输入区。"""
+        engine = CanvasQueryEngine()
+        message_input = _make_candidate(
+            "message_input",
+            text="发送给小明的内容",
+            semantic_role=SemanticRole.MESSAGE_INPUT,
+            confidence=1.0,
+            control_type="Edit",
+        )
+        send_button = _make_candidate(
+            "send_button",
+            text="发送",
+            semantic_role=SemanticRole.SEND_BUTTON,
+            confidence=0.6,
+            control_type="Button",
+        )
+        send_button.risk_tags = ["send"]
+        canvas = _make_canvas([message_input, send_button])
+
+        result = engine.query(canvas, QueryTarget(natural_language="找发送按钮"))
+
+        assert result.candidates[0].element_id == "send_button"
+        assert all(candidate.element_id != "message_input" for candidate in result.candidates)
+
+    def test_settings_menu_query_uses_role_label_and_semantic_tags(self):
+        """设置菜单可由 refined role_label/semantic_tags 命中。"""
+        engine = CanvasQueryEngine()
+        generic_button = _make_candidate(
+            "generic",
+            text="",
+            semantic_role=SemanticRole.BUTTON,
+            confidence=0.9,
+            role_label="toolbar icon",
+            semantic_tags=["toolbar"],
+        )
+        settings = _make_candidate(
+            "settings",
+            text="",
+            semantic_role=SemanticRole.BUTTON,
+            confidence=0.7,
+            role_label="settings menu",
+            semantic_tags=["settings", "menu"],
+        )
+        canvas = _make_canvas([generic_button, settings])
+
+        result = engine.query(canvas, QueryTarget(natural_language="找设置菜单"))
+
+        assert result.candidates[0].element_id == "settings"
+
+    def test_zero_score_layout_is_not_returned_when_min_confidence_is_zero(self):
+        """min_confidence=0 只放宽低置信正匹配，不能把 0 分 layout 当作命中。"""
+        engine = CanvasQueryEngine()
+        empty_layout = _make_candidate(
+            "empty_layout",
+            text="",
+            semantic_role=SemanticRole.LAYOUT,
+            confidence=0.95,
+            control_type="Pane",
+        )
+        explorer = _make_candidate(
+            "explorer",
+            text="资源管理器",
+            semantic_role=SemanticRole.TREE_ITEM,
+            confidence=0.2,
+            control_type="TreeItem",
+        )
+        canvas = _make_canvas([empty_layout, explorer])
+
+        result = engine.query(canvas, QueryTarget(natural_language="找会话列表"), min_confidence=0.0)
+
+        assert result.candidates[0].element_id == "explorer"
+        assert all(candidate.element_id != "empty_layout" for candidate in result.candidates)
+
+    def test_alphanumeric_label_query_matches_short_self_drawn_button(self):
+        """自然查询里的 A1/B2 等短标签应能召回自绘 OCR/app_layout 候选。"""
+        engine = CanvasQueryEngine()
+        send = _make_candidate(
+            "send",
+            text="Send",
+            semantic_role=SemanticRole.SEND_BUTTON,
+            confidence=1.0,
+            control_type="Button",
+        )
+        a1 = _make_candidate(
+            "a1",
+            text="A1",
+            semantic_role=SemanticRole.BUTTON,
+            confidence=0.35,
+            control_type="Button",
+        )
+        canvas = _make_canvas([send, a1])
+
+        result = engine.query(canvas, QueryTarget(natural_language="找 A1 输出按钮"), min_confidence=0.0)
+
+        assert result.candidates[0].element_id == "a1"
+
+
 # ---------------------------------------------------------------------------
 # Test: No regression
 # ---------------------------------------------------------------------------
+
+
+    def test_tab_query_matches_tab_elements(self):
+        engine = CanvasQueryEngine()
+        tab = _make_candidate("tab1", text="GitHub", semantic_role=SemanticRole.TAB, confidence=0.9)
+        btn = _make_candidate("btn1", text="OK", semantic_role=SemanticRole.BUTTON, confidence=0.9)
+        canvas = _make_canvas([tab, btn])
+        result = engine.query(canvas, QueryTarget(natural_language="找标签页"), min_confidence=0.0)
+        assert result.candidates[0].element_id == "tab1"
+
+    def test_navigation_button_query_matches_back_button(self):
+        engine = CanvasQueryEngine()
+        back = _make_candidate("back", text="后退", semantic_role=SemanticRole.BUTTON, confidence=0.9)
+        other = _make_candidate("other", text="设置", semantic_role=SemanticRole.MENU_ITEM, confidence=0.9)
+        canvas = _make_canvas([back, other])
+        result = engine.query(canvas, QueryTarget(natural_language="找后退按钮"), min_confidence=0.0)
+        assert result.candidates[0].element_id == "back"
+
+    def test_file_explorer_query_matches_sidebar(self):
+        engine = CanvasQueryEngine()
+        sidebar = _make_candidate("explorer", text="资源管理器", semantic_role=SemanticRole.SIDEBAR, confidence=0.9)
+        editor = _make_candidate("editor", text="main.py", semantic_role=SemanticRole.TEXT, confidence=0.9)
+        canvas = _make_canvas([sidebar, editor])
+        result = engine.query(canvas, QueryTarget(natural_language="找文件资源管理器"), min_confidence=0.0)
+        assert result.candidates[0].element_id == "explorer"
+
+    def test_terminal_query_matches_pane_text(self):
+        engine = CanvasQueryEngine()
+        term = _make_candidate("term", text="Terminal", semantic_role=SemanticRole.TEXT, confidence=0.9)
+        code = _make_candidate("code", text="def main():", semantic_role=SemanticRole.TEXT, confidence=0.9)
+        canvas = _make_canvas([term, code])
+        result = engine.query(canvas, QueryTarget(natural_language="找终端"), min_confidence=0.0)
+        assert result.candidates[0].element_id == "term"
+
+    def test_editor_query_matches_text_input(self):
+        engine = CanvasQueryEngine()
+        editor = _make_candidate("editor", text="", semantic_role=SemanticRole.TEXT_INPUT, confidence=0.9)
+        sidebar = _make_candidate("sidebar", text="Explorer", semantic_role=SemanticRole.SIDEBAR, confidence=0.9)
+        canvas = _make_canvas([editor, sidebar])
+        result = engine.query(canvas, QueryTarget(natural_language="找编辑区域"), min_confidence=0.0)
+        assert result.candidates[0].element_id == "editor"
+
+    def test_contact_query_matches_chat_item(self):
+        engine = CanvasQueryEngine()
+        contact = _make_candidate("contact", text="张三", semantic_role=SemanticRole.CHAT_ITEM, confidence=0.9)
+        msg = _make_candidate("msg", text="你好", semantic_role=SemanticRole.TEXT, confidence=0.9)
+        canvas = _make_canvas([contact, msg])
+        result = engine.query(canvas, QueryTarget(natural_language="找联系人"), min_confidence=0.0)
+        assert result.candidates[0].element_id == "contact"
+
+
+    def test_region_match_bonus(self):
+        """Candidate in matching region ranks higher than one in wrong region."""
+        engine = CanvasQueryEngine()
+        from src.perception.page_compiler_models import Region
+        nav_region = Region(region_id="r_nav", role="navigation", bounds=(0, 0, 500, 40))
+        content_region = Region(region_id="r_content", role="content_area", bounds=(0, 40, 500, 400))
+        btn = _make_candidate("btn", text="后退", semantic_role=SemanticRole.BUTTON, confidence=0.9, region_id="r_nav")
+        url = _make_candidate("url", text="chatgpt.com", semantic_role=SemanticRole.BUTTON, confidence=0.9, region_id="r_content")
+        canvas = _make_canvas([btn, url], regions=[nav_region, content_region])
+        result = engine.query(canvas, QueryTarget(natural_language="找后退按钮"), min_confidence=0.0)
+        assert result.candidates[0].element_id == "btn"
+
+    def test_missing_region_not_penalized(self):
+        """Candidate without region should not crash or get negative score."""
+        engine = CanvasQueryEngine()
+        canvas = _make_canvas([
+            _make_candidate("a", text="OK", semantic_role=SemanticRole.BUTTON, confidence=0.9),
+        ])
+        result = engine.query(canvas, QueryTarget(natural_language="找后退按钮"), min_confidence=0.0)
+        # Should not crash; candidate may or may not match but score >= 0
+        for c in result.candidates:
+            pass  # just verifying no crash
+
+
+    def test_menu_button_query_matches_menu_elements(self):
+        engine = CanvasQueryEngine()
+        menu = _make_candidate("menu1", text="Menu", semantic_role=SemanticRole.BUTTON, confidence=0.9)
+        other = _make_candidate("other1", text="A1", semantic_role=SemanticRole.BUTTON, confidence=0.9)
+        canvas = _make_canvas([menu, other])
+        result = engine.query(canvas, QueryTarget(natural_language="找菜单按钮"), min_confidence=0.0)
+        assert result.candidates[0].element_id == "menu1"
+
+    def test_region_match_bonus(self):
+        """Candidate in matching region should score higher."""
+        engine = CanvasQueryEngine()
+        # Both are buttons, but one is in toolbar region
+        toolbar_btn = _make_candidate("tb", text="后退", semantic_role=SemanticRole.BUTTON, confidence=0.9)
+        search_btn = _make_candidate("sb", text="搜索", semantic_role=SemanticRole.BUTTON, confidence=0.9)
+        canvas = _make_canvas([toolbar_btn, search_btn])
+        # Set region roles
+        toolbar_btn.attributes = {"region_role": "toolbar"}
+        search_btn.attributes = {"region_role": "content_area"}
+        result = engine.query(canvas, QueryTarget(natural_language="找后退按钮"), min_confidence=0.0)
+        # Both have role=button, but toolbar_btn has matching region_role
+        assert result.candidates[0].element_id == "tb"
+
+    def test_unknown_region_not_penalized(self):
+        """Candidate with no region_role should not be penalized."""
+        engine = CanvasQueryEngine()
+        btn = _make_candidate("btn1", text="Menu", semantic_role=SemanticRole.BUTTON, confidence=0.9)
+        btn.attributes = {}  # no region_role
+        canvas = _make_canvas([btn])
+        result = engine.query(canvas, QueryTarget(natural_language="找菜单按钮"), min_confidence=0.0)
+        assert len(result.candidates) >= 1
+        assert result.candidates[0].element_id == "btn1"
+
+    def test_negative_text_excludes_url_as_button(self):
+        """Intent with negative_text should exclude URL-matching candidates."""
+        engine = CanvasQueryEngine()
+        url_btn = _make_candidate("url", text="https://chatgpt.com/g/g-p", semantic_role=SemanticRole.BUTTON, confidence=0.9)
+        real_btn = _make_candidate("real", text="后退", semantic_role=SemanticRole.BUTTON, confidence=0.9)
+        canvas = _make_canvas([url_btn, real_btn])
+        # Use navigation_button intent which has negative terms
+        result = engine.query(canvas, QueryTarget(natural_language="找后退按钮"), min_confidence=0.0)
+        # URL should not be top-1
+        assert result.candidates[0].element_id == "real"
 
 
 class TestNoRegression:

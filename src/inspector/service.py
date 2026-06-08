@@ -275,7 +275,7 @@ class InspectorService:
         task: str,
         max_candidates: int = 120,
     ) -> dict[str, Any]:
-        """Build the weak-structure payload sent from local perception to DeskCanvas."""
+        """Build the weak-structure payload sent from local perception to OpenClaw."""
         snapshot = self._load_snapshot_with_sidecars(snapshot_path)
         return {
             "snapshot_path": str(snapshot_path),
@@ -292,7 +292,7 @@ class InspectorService:
         snapshot_path: str | Path,
         max_candidates: int = 120,
     ) -> dict[str, Any]:
-        """Expose normalized boundary candidates for inspection and DeskCanvas input checks."""
+        """Expose normalized boundary candidates for inspection and OpenClaw input checks."""
         snapshot = self._load_snapshot_with_sidecars(snapshot_path)
         return {
             "snapshot_path": str(snapshot_path),
@@ -418,7 +418,7 @@ class InspectorService:
         self,
         decision_path: str | Path,
     ) -> dict[str, Any]:
-        """Normalize one DeskCanvas decision JSON into the repo's canonical decision record."""
+        """Normalize one OpenClaw decision JSON into the repo's canonical decision record."""
         decision = json.loads(Path(decision_path).read_text(encoding="utf-8"))
         return {
             "decision_path": str(decision_path),
@@ -431,7 +431,7 @@ class InspectorService:
         decision_path: str | Path,
         crop_scale: float = 1.5,
     ) -> dict[str, Any]:
-        """Build a local recrop request when DeskCanvas returns a focus bbox."""
+        """Build a local recrop request when OpenClaw returns a focus bbox."""
         snapshot = self._load_snapshot_with_sidecars(snapshot_path)
         decision = json.loads(Path(decision_path).read_text(encoding="utf-8"))
         decision_record = normalize_decision_record(decision)
@@ -468,7 +468,7 @@ class InspectorService:
     ) -> dict[str, Any]:
         """
         Crop one uncertain region from an existing screenshot, rerun local OCR/vision,
-        and build a second-round DeskCanvas payload for that focused area.
+        and build a second-round OpenClaw payload for that focused area.
         """
         snapshot_path = Path(snapshot_path)
         snapshot = self._load_snapshot_with_sidecars(snapshot_path)

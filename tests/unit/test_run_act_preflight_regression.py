@@ -52,7 +52,7 @@ def _complete_response(action: str) -> dict:
             },
             "verification_plan": {
                 "readback_plan": {
-                    "expected_text": "DeskCanvas matrix probe",
+                    "expected_text": "OpenClaw matrix probe",
                     "request": {"region_role": "message_stream"},
                 },
                 "state_probe_plan": {"current": {"input_state": "empty", "send_enabled": False}},

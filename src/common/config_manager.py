@@ -1,4 +1,4 @@
-"""Configuration manager for DeskCanvas.
+"""Configuration manager for OpenClaw Desktop Agent.
 
 Loads settings from YAML config files and environment variables.
 Environment variables override file-based config for sensitive values.
